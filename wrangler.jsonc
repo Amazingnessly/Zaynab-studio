@@ -9,8 +9,22 @@
     "not_found_handling": "single-page-application",
     "run_worker_first": ["/api/*"]
   },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "zaynab-studio",
+      "database_id": "REPLACE_WITH_D1_DATABASE_ID",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "VIDEOS",
+      "bucket_name": "zaynab-studio-videos"
+    }
+  ],
   "vars": {
-    "APP_VERSION": "4.1",
+    "APP_VERSION": "4.2",
     "ALLOW_REAL_GPU": "false"
   }
 }
