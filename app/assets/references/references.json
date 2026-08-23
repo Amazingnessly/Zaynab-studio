@@ -1,0 +1,25 @@
+{
+  "character": "Zaynab",
+  "version": 1,
+  "identity_lock": {
+    "face": "strict",
+    "hijab": "sage green",
+    "outfit": "warm brown modest dress/top",
+    "style": "soft illustrated realism with subtle paper/grain texture",
+    "consistency": ["facial proportions", "eye shape and color", "nose", "smile", "skin tone", "hijab drape", "body proportions", "hands"]
+  },
+  "references": [
+    {"file":"portrait-main.jpg","role":"primary_identity","priority":100,"use_for":["face","hijab","palette","rendering_style"]},
+    {"file":"portrait-alt.jpg","role":"secondary_identity","priority":90,"use_for":["face_consistency","hijab_consistency"]},
+    {"file":"supermarket.jpg","role":"body_context","priority":80,"use_for":["body_proportions","hands","outfit","object_interaction"]},
+    {"file":"comic-poses.jpg","role":"pose_storyboard","priority":70,"use_for":["poses","gestures","expressions","comic_framing"]}
+  ],
+  "negative_constraints": [
+    "do not change Zaynab's identity between shots",
+    "do not expose hair",
+    "do not alter the characteristic sage-green hijab without an explicit scene instruction",
+    "avoid facial deformation",
+    "avoid malformed hands or extra fingers",
+    "do not copy a reference background unless requested"
+  ]
+}
