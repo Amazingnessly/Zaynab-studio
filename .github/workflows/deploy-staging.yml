@@ -3,10 +3,11 @@ name: Deploy Zaynab Studio staging
 on:
   workflow_dispatch:
   push:
-    branches: [agent/zaynab-references-v2]
+    branches: [main]
     paths:
       - app/**
       - src/**
+      - scripts/**
       - wrangler.staging.jsonc
       - package.json
       - .github/workflows/deploy-staging.yml
