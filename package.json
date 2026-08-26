@@ -1,0 +1,17 @@
+{
+  "name": "zaynab-studio",
+  "private": true,
+  "version": "4.2.0",
+  "type": "module",
+  "scripts": {
+    "validate": "node scripts/validate-release.mjs",
+    "dev": "wrangler dev",
+    "deploy": "npm run validate && wrangler deploy",
+    "deploy:staging": "npm run validate && wrangler deploy --config wrangler.staging.jsonc",
+    "d1:migrate:local": "wrangler d1 migrations apply zaynab-studio --local",
+    "d1:migrate:remote": "wrangler d1 migrations apply zaynab-studio --remote"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

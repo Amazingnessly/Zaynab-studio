@@ -1,0 +1,12 @@
+{
+  "name": "Zaynab Studio",
+  "short_name": "Zaynab Studio",
+  "id": "/?app=zaynab-studio",
+  "start_url": "/?app=zaynab-studio",
+  "display": "standalone",
+  "background_color": "#f6f4f1",
+  "theme_color": "#111111",
+  "icons": [
+    {"src":"assets/zaynab-1.jpeg","sizes":"512x512","type":"image/jpeg","purpose":"any maskable"}
+  ]
+}
