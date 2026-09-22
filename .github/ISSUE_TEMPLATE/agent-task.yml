@@ -1,0 +1,23 @@
+name: Agent task
+description: Controlled Zaynab Studio agent work item
+title: "[agent] "
+labels: ["agent-task"]
+body:
+  - type: textarea
+    id: objective
+    attributes:
+      label: Objective
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Allowed write scope
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance checks
+    validations:
+      required: true
