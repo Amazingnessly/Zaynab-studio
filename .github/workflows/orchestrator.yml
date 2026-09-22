@@ -1,0 +1,70 @@
+name: Zaynab Studio orchestrator
+
+on:
+  workflow_dispatch:
+  issues:
+    types: [closed, reopened]
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: zaynab-orchestrator
+  cancel-in-progress: false
+
+jobs:
+  plan-wave:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/github-script@v7
+        env:
+          PLAN_PATH: orchestrator/plan.json
+        with:
+          script: |
+            const fs = require('fs');
+            const plan = JSON.parse(fs.readFileSync(process.env.PLAN_PATH, 'utf8'));
+            const { owner, repo } = context.repo;
+            const open = await github.paginate(github.rest.issues.listForRepo, {
+              owner, repo, state: 'open', labels: 'agent-task', per_page: 100
+            });
+            const existing = new Set(open.map(i => i.title));
+            const merged = await github.paginate(github.rest.pulls.list, {
+              owner, repo, state: 'closed', base: 'main', per_page: 100
+            });
+            const mergedText = merged.filter(p => p.merged_at).map(p => p.title + '\n' + (p.body || '')).join('\n');
+
+            let created = 0;
+            for (const wave of plan.waves) {
+              const eligible = wave.tasks.filter(t =>
+                (t.depends_on || []).every(dep => mergedText.includes('[agent-task:' + dep + ']'))
+              );
+              for (const task of eligible) {
+                if (created >= plan.max_parallel_agents) break;
+                const title = '[agent-task:' + task.id + '] ' + task.owner;
+                if (existing.has(title) || mergedText.includes('[agent-task:' + task.id + ']')) continue;
+                const scope = (task.paths || ['integration/review only']).map(x => '- ' + x).join('\n');
+                await github.rest.issues.create({
+                  owner, repo, title,
+                  labels: ['agent-task'],
+                  body: [
+                    'Wave: **' + wave.id + '**',
+                    'Owner role: **' + task.owner + '**',
+                    '',
+                    'Allowed write scope:',
+                    scope,
+                    '',
+                    'Rules: read AGENTS.md and orchestrator/README.md; use an isolated agent branch; open a PR to main; include this marker in the PR body: [agent-task:' + task.id + '].',
+                    'Do not enable real GPU compute or paid retries.',
+                    'Validation must be green before merge.'
+                  ].join('\n')
+                });
+                created++;
+              }
+              if (created > 0) break;
+            }
+            core.notice('Created ' + created + ' task(s); max parallel=' + plan.max_parallel_agents);
