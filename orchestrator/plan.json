@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "max_parallel_agents": 4,
+  "max_auto_repair_attempts": 2,
+  "gpu_policy": "human_approval_required",
+  "waves": [
+    {
+      "id": "wave-1-foundation",
+      "tasks": [
+        {"id":"pwa","owner":"agent-pwa","paths":["app/**"],"depends_on":[]},
+        {"id":"storage","owner":"agent-cloudflare","paths":["wrangler*.jsonc","migrations/**",".github/workflows/**"],"depends_on":[]},
+        {"id":"api","owner":"agent-api","paths":["src/**"],"depends_on":[]},
+        {"id":"qa","owner":"agent-qa","paths":["scripts/**"],"depends_on":[]}
+      ]
+    },
+    {
+      "id": "wave-2-integration",
+      "tasks": [
+        {"id":"integration","owner":"agent-integrator","depends_on":["pwa","storage","api","qa"]}
+      ]
+    }
+  ]
+}
