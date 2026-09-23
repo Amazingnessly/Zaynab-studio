@@ -11,6 +11,14 @@ const ENGINE = "wan-2.2-ti2v-5b";
 const ALLOWED_MODES = new Set(["Brouillon", "Qualité"]);
 const ALLOWED_FORMATS = new Set(["9:16", "1:1"]);
 const ALLOWED_DURATIONS = new Set(["5 s", "8 s", "10 s"]);
+const GPU_READINESS = Object.freeze({
+  engine: ENGINE,
+  resolution: "704x1280",
+  max_duration_seconds: 10,
+  human_approval_required: true,
+  estimated_cost_required: true,
+  durable_r2_result_required: true
+});
 
 function runpodConfigured(env) {
   return Boolean(env.RUNPOD_API_KEY) && Boolean(env.RUNPOD_ENDPOINT_ID);
@@ -22,6 +30,18 @@ function realGpuEnabled(env) {
 
 function persistenceReady(env) {
   return Boolean(env.DB) && Boolean(env.VIDEOS);
+}
+
+function gpuReadiness(env) {
+  return {
+    ...GPU_READINESS,
+    persistence_ready: persistenceReady(env),
+    runpod_configured: runpodConfigured(env),
+    allow_real_gpu_flag: env.ALLOW_REAL_GPU === "true",
+    ready_for_paid_activation: false,
+    real_gpu_allowed: false,
+    message: "Préparation uniquement. Une activation réelle exige une validation humaine séparée."
+  };
 }
 
 function cleanText(value, maxLength, fallback = null) {
@@ -155,12 +175,17 @@ export default {
         persistence_ready: persistent,
         runpod_configured: configured,
         real_gpu_allowed: false,
+        gpu_policy: GPU_READINESS,
         message: !persistent
           ? "Backend Cloudflare prêt, mais D1/R2 doivent encore être liés. GPU verrouillé."
           : configured
             ? "D1/R2 prêts et RunPod configuré. Le GPU reste verrouillé par sécurité."
             : "Backend Cloudflare + persistance prêts en simulation 0 €. Aucun GPU réel n’est autorisé."
       });
+    }
+
+    if (url.pathname === "/api/v1/gpu-readiness" && request.method === "GET") {
+      return json(gpuReadiness(env));
     }
 
     if (url.pathname === "/api/v1/jobs" && request.method === "GET") {
@@ -189,7 +214,8 @@ export default {
       if (realGpuEnabled(env)) {
         return json({
           error: "GPU réel verrouillé jusqu’à validation humaine de la chaîne vidéo",
-          code: "REAL_GPU_HARD_LOCKED"
+          code: "REAL_GPU_HARD_LOCKED",
+          readiness: gpuReadiness(env)
         }, 409);
       }
 
