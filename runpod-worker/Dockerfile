@@ -1,4 +1,4 @@
-FROM runpod/pytorch:2.8.0-py3.11-cuda12.8.1-cudnn-devel-ubuntu
+FROM pytorch/pytorch:2.8.0-cuda12.8-cudnn9-devel
 
 ARG WAN_COMMIT=1ea34ff48f87168174e12956e200b1d908b1c5ff
 
