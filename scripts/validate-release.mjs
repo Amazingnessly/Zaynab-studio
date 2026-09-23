@@ -1,4 +1,5 @@
 import { access, readFile } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
 
 const required = [
   'app/index.html',
@@ -9,7 +10,8 @@ const required = [
   'wrangler.jsonc',
   'wrangler.staging.jsonc',
   'migrations/0001_jobs.sql',
-  'runpod-worker/handler.py'
+  'runpod-worker/handler.py',
+  'runpod-worker/requirements.txt'
 ];
 
 let failed = false;
@@ -104,6 +106,32 @@ for (const contract of ['ALLOWED_MODES', 'ALLOWED_FORMATS', 'ALLOWED_DURATIONS',
   if (!worker.includes(contract)) fail(`worker input contract missing: ${contract}`);
 }
 if (!failed) ok('worker validates bounded generation inputs');
+
+const runpodHandler = await readFile('runpod-worker/handler.py', 'utf8');
+const runpodRequirements = await readFile('runpod-worker/requirements.txt', 'utf8');
+try {
+  execFileSync('python3', ['-m', 'py_compile', 'runpod-worker/handler.py'], { stdio: 'pipe' });
+  ok('RunPod handler Python syntax is valid');
+} catch {
+  fail('RunPod handler Python syntax is invalid');
+}
+if (!runpodHandler.includes('timeout=1200') && !runpodHandler.includes('timeout = 1200')) {
+  fail('RunPod generation must have a bounded timeout');
+} else {
+  ok('RunPod generation timeout is bounded');
+}
+for (const literal of ['sk-proj-', 'CLOUDFLARE_API_TOKEN=', 'RUNPOD_API_KEY=', 'R2_SECRET_ACCESS_KEY=']) {
+  if (runpodHandler.includes(literal)) fail(`possible committed secret literal in RunPod worker: ${literal}`);
+}
+if (runpodHandler.includes('video_key')) {
+  for (const envName of ['R2_ENDPOINT_URL', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY']) {
+    if (!runpodHandler.includes(envName)) fail(`durable RunPod upload missing env contract: ${envName}`);
+  }
+  if (!runpodRequirements.includes('boto3')) fail('durable RunPod R2 upload requires boto3');
+  else ok('RunPod durable R2 upload contract is present');
+} else {
+  ok('RunPod durable upload not active on this branch; real GPU remains locked');
+}
 
 const frontendFiles = ['app/index.html', 'app/sw.js', 'app/manifest.webmanifest'];
 const forbiddenFrontendSecrets = [
