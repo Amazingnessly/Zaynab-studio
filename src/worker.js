@@ -22,22 +22,22 @@ const GPU_READINESS = Object.freeze({
 
 const GPU_QUOTE = Object.freeze({
   provider: "RunPod Serverless",
-  gpu: "RTX 4090",
-  vram_gb: 24,
-  hourly_rate_usd: 1.10,
-  hourly_rate_eur_estimate: 0.97,
+  gpu: "A6000 / A40 class",
+  vram_gb: 48,
+  hourly_rate_usd: 1.22,
+  hourly_rate_eur_estimate: 1.07,
   pricing_checked_at: "2026-09-23",
   fx_checked_at: "2026-09-23",
   billing: "per-second",
   generation_timeout_seconds: 1200,
   runtime_prediction_available: false,
   examples: [
-    { runtime_minutes: 5, estimated_usd: 0.09, estimated_eur: 0.08 },
-    { runtime_minutes: 10, estimated_usd: 0.18, estimated_eur: 0.16 },
-    { runtime_minutes: 20, estimated_usd: 0.37, estimated_eur: 0.32 }
+    { runtime_minutes: 5, estimated_usd: 0.10, estimated_eur: 0.09 },
+    { runtime_minutes: 10, estimated_usd: 0.20, estimated_eur: 0.18 },
+    { runtime_minutes: 20, estimated_usd: 0.41, estimated_eur: 0.36 }
   ],
-  max_compute_estimate_eur_with_25pct_buffer: 0.41,
-  note: "Estimation de calcul seulement. Le temps réel sera mesuré au premier benchmark; stockage ou frais annexes éventuels sont exclus."
+  max_compute_estimate_eur_with_25pct_buffer: 0.45,
+  note: "Estimation de calcul seulement. Le temps réel sera mesuré au premier benchmark; stockage ou frais annexes éventuels sont exclus. La classe 48 GB est retenue pour augmenter la marge mémoire du premier test."
 });
 
 function runpodConfigured(env) {

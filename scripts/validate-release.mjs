@@ -113,7 +113,7 @@ for (const contract of ['ALLOWED_MODES', 'ALLOWED_FORMATS', 'ALLOWED_DURATIONS',
 }
 if (!failed) ok('worker validates bounded generation inputs');
 
-for (const paidGuard of ['GPU_QUOTE', '/api/v1/render-quote', 'RTX 4090', 'hourly_rate_usd', 'max_compute_estimate_eur_with_25pct_buffer']) {
+for (const paidGuard of ['GPU_QUOTE', '/api/v1/render-quote', 'A6000 / A40 class', 'hourly_rate_usd', 'max_compute_estimate_eur_with_25pct_buffer']) {
   if (!worker.includes(paidGuard)) fail(`paid-render preflight contract missing: ${paidGuard}`);
 }
 if (!worker.includes('quote_status: "informational_only"')) fail('render quote must remain informational only');
