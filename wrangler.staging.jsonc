@@ -12,5 +12,19 @@
   "vars": {
     "APP_VERSION": "4.2-staging",
     "ALLOW_REAL_GPU": "false"
-  }
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "zaynab-studio",
+      "database_id": "bd26b6c2-733b-4a12-a21e-af1e12cfc56a",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "VIDEOS",
+      "bucket_name": "zaynab-studio-videos"
+    }
+  ]
 }

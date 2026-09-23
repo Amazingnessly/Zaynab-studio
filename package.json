@@ -9,7 +9,8 @@
     "deploy": "npm run validate && wrangler deploy",
     "deploy:staging": "npm run validate && wrangler deploy --config wrangler.staging.jsonc",
     "d1:migrate:local": "wrangler d1 migrations apply zaynab-studio --local",
-    "d1:migrate:remote": "wrangler d1 migrations apply zaynab-studio --remote"
+    "d1:migrate:remote": "wrangler d1 migrations apply zaynab-studio --remote",
+    "d1:migrate:staging": "wrangler d1 migrations apply zaynab-studio --remote --config wrangler.staging.jsonc"
   },
   "devDependencies": {
     "wrangler": "^4.0.0"
