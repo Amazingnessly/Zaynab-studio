@@ -1,3 +1,4 @@
+// Paid-render preflight checks run against the current PR base.
 import { access, readFile } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
 
@@ -68,6 +69,11 @@ for (const official of [
 if (/Codespaces/i.test(index)) fail('PWA still contains obsolete Codespaces instructions');
 else ok('PWA uses official references without obsolete setup copy');
 
+for (const guardText of ['/v1/render-quote', 'Verrou coût actif', 'Confirmation explicite obligatoire']) {
+  if (!index.includes(guardText)) fail(`PWA paid-render guard missing: ${guardText}`);
+}
+if (!failed) ok('PWA exposes cost estimate before paid rendering');
+
 const migration = await readFile('migrations/0001_jobs.sql', 'utf8');
 for (const column of ['cost_eur', 'video_key', 'error', 'updated_at']) {
   if (!migration.includes(column)) fail(`persistent job schema missing column: ${column}`);
@@ -106,6 +112,12 @@ for (const contract of ['ALLOWED_MODES', 'ALLOWED_FORMATS', 'ALLOWED_DURATIONS',
   if (!worker.includes(contract)) fail(`worker input contract missing: ${contract}`);
 }
 if (!failed) ok('worker validates bounded generation inputs');
+
+for (const paidGuard of ['GPU_QUOTE', '/api/v1/render-quote', 'RTX 4090', 'hourly_rate_usd', 'max_compute_estimate_eur_with_25pct_buffer']) {
+  if (!worker.includes(paidGuard)) fail(`paid-render preflight contract missing: ${paidGuard}`);
+}
+if (!worker.includes('quote_status: "informational_only"')) fail('render quote must remain informational only');
+else ok('render quote cannot activate paid compute');
 
 const runpodHandler = await readFile('runpod-worker/handler.py', 'utf8');
 const runpodRequirements = await readFile('runpod-worker/requirements.txt', 'utf8');
@@ -147,6 +159,13 @@ for (const file of frontendFiles) {
   }
 }
 if (!failed) ok('no server-side secret markers exposed in PWA files');
+
+const orchestratorPlan = JSON.parse(await readFile('orchestrator/plan.json', 'utf8'));
+if (orchestratorPlan?.budget?.openai_api_monthly_eur !== 5 || orchestratorPlan?.budget?.hard_stop_required !== true) {
+  fail('OpenAI API budget policy must keep a 5 EUR monthly hard stop');
+} else {
+  ok('OpenAI API budget hard stop remains 5 EUR/month');
+}
 
 if (failed) process.exit(1);
 console.log('Release validation passed.');
