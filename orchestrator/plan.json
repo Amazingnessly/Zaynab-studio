@@ -1,5 +1,5 @@
 {
-  "version": 3,
+  "version": 4,
   "max_parallel_agents": 4,
   "max_auto_repair_attempts": 2,
   "gpu_policy": "human_approval_required",
@@ -188,6 +188,58 @@
             "api-runpod-contract",
             "pwa-cost-guard",
             "qa-runpod-safety"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wave-7-paid-preflight",
+      "tasks": [
+        {
+          "id": "gpu-quote",
+          "owner": "agent-api",
+          "paths": [
+            "src/**"
+          ],
+          "depends_on": [
+            "integration-3"
+          ]
+        },
+        {
+          "id": "pwa-quote",
+          "owner": "agent-pwa",
+          "paths": [
+            "app/**"
+          ],
+          "depends_on": [
+            "integration-3"
+          ]
+        },
+        {
+          "id": "qa-paid-preflight",
+          "owner": "agent-qa",
+          "paths": [
+            "scripts/**"
+          ],
+          "depends_on": [
+            "integration-3"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wave-8-integration",
+      "tasks": [
+        {
+          "id": "integration-4",
+          "owner": "agent-integrator",
+          "paths": [
+            "orchestrator/reports/**"
+          ],
+          "depends_on": [
+            "gpu-quote",
+            "pwa-quote",
+            "qa-paid-preflight"
           ]
         }
       ]
