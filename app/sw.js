@@ -1,4 +1,4 @@
-const CACHE_NAME = 'zaynab-studio-v4.2.1';
+const CACHE_NAME = 'zaynab-studio-v4.2.2';
 const STATIC_ASSETS = [
   './',
   './index.html',
