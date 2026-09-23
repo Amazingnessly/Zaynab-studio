@@ -70,8 +70,9 @@ if (!staging?.r2_buckets?.some(bucket => bucket.binding === 'VIDEOS' && bucket.b
 }
 
 const worker = await readFile('src/worker.js', 'utf8');
+const normalizedWorker = worker.replace(/\\\//g, '/');
 for (const route of ['/api/health', '/api/v1/generate', '/api/v1/jobs/', '/api/v1/videos/']) {
-  if (!worker.includes(route)) fail(`worker route missing: ${route}`);
+  if (!normalizedWorker.includes(route)) fail(`worker route missing: ${route}`);
 }
 if (!worker.includes('real_gpu_allowed: false')) {
   fail('worker must explicitly report real_gpu_allowed=false');
