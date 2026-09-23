@@ -57,6 +57,15 @@ jobs:
           test -n "$HEALTH" || { echo "Staging health endpoint did not respond"; exit 1; }
           printf '%s' "$HEALTH" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);if(!j.ok||!j.persistence_ready||j.real_gpu_allowed!==false||j.mode!=='mock')process.exit(1)})"
 
+          QUOTE=$(curl -fsS "$BASE/v1/render-quote")
+          printf '%s' "$QUOTE" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);if(j.real_gpu_allowed!==false||j.approval_required!==true||j.quote_status!=='informational_only'||Number(j.vram_gb)<48||Number(j.max_compute_estimate_eur_with_25pct_buffer)<=0)process.exit(1)})"
+
+          READINESS=$(curl -fsS "$BASE/v1/gpu-readiness")
+          printf '%s' "$READINESS" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);if(j.real_gpu_allowed!==false||j.ready_for_paid_activation!==false||j.human_approval_required!==true)process.exit(1)})"
+
+          UPLOAD_STATUS=$(curl -sS -o /tmp/zaynab-upload-probe.json -w '%{http_code}' -X PUT "$BASE/v1/uploads/ci-probe" -H 'content-type: video/mp4' --data-binary '')
+          test "$UPLOAD_STATUS" = "401" || { cat /tmp/zaynab-upload-probe.json; echo "Unauthenticated upload route was not rejected"; exit 1; }
+
           RESPONSE=$(curl -fsS -X POST "$BASE/v1/generate"             -H 'content-type: application/json'             --data '{"project_id":"ci-smoke","title":"CI smoke","prompt":"Short zero-cost staging smoke validation.","mode":"Brouillon","format":"9:16","duration":"5 s"}')
           JOB_ID=$(printf '%s' "$RESPONSE" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);if(j.mode!=='mock'||j.cost_eur!==0||!j.job_id)process.exit(1);process.stdout.write(j.job_id)})")
 
