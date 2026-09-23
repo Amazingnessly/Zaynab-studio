@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "max_parallel_agents": 4,
   "max_auto_repair_attempts": 2,
   "gpu_policy": "human_approval_required",
@@ -12,31 +12,184 @@
     {
       "id": "wave-1-foundation",
       "tasks": [
-        {"id":"pwa","owner":"agent-pwa","paths":["app/**"],"depends_on":[]},
-        {"id":"storage","owner":"agent-cloudflare","paths":["wrangler*.jsonc","migrations/**",".github/workflows/**"],"depends_on":[]},
-        {"id":"api","owner":"agent-api","paths":["src/**"],"depends_on":[]},
-        {"id":"qa","owner":"agent-qa","paths":["scripts/**"],"depends_on":[]}
+        {
+          "id": "pwa",
+          "owner": "agent-pwa",
+          "paths": [
+            "app/**"
+          ],
+          "depends_on": []
+        },
+        {
+          "id": "storage",
+          "owner": "agent-cloudflare",
+          "paths": [
+            "wrangler*.jsonc",
+            "migrations/**",
+            ".github/workflows/**"
+          ],
+          "depends_on": []
+        },
+        {
+          "id": "api",
+          "owner": "agent-api",
+          "paths": [
+            "src/**"
+          ],
+          "depends_on": []
+        },
+        {
+          "id": "qa",
+          "owner": "agent-qa",
+          "paths": [
+            "scripts/**"
+          ],
+          "depends_on": []
+        }
       ]
     },
     {
       "id": "wave-2-integration",
       "tasks": [
-        {"id":"integration","owner":"agent-integrator","paths":["orchestrator/reports/**"],"depends_on":["pwa","storage","api","qa"]}
+        {
+          "id": "integration",
+          "owner": "agent-integrator",
+          "paths": [
+            "orchestrator/reports/**"
+          ],
+          "depends_on": [
+            "pwa",
+            "storage",
+            "api",
+            "qa"
+          ]
+        }
       ]
     },
     {
       "id": "wave-3-hardening",
       "tasks": [
-        {"id":"pwa-resume","owner":"agent-pwa","paths":["app/**"],"depends_on":["integration"]},
-        {"id":"staging-smoke","owner":"agent-cloudflare","paths":[".github/workflows/**"],"depends_on":["integration"]},
-        {"id":"api-safety","owner":"agent-api","paths":["src/**"],"depends_on":["integration"]},
-        {"id":"qa-contracts","owner":"agent-qa","paths":["scripts/**"],"depends_on":["integration"]}
+        {
+          "id": "pwa-resume",
+          "owner": "agent-pwa",
+          "paths": [
+            "app/**"
+          ],
+          "depends_on": [
+            "integration"
+          ]
+        },
+        {
+          "id": "staging-smoke",
+          "owner": "agent-cloudflare",
+          "paths": [
+            ".github/workflows/**"
+          ],
+          "depends_on": [
+            "integration"
+          ]
+        },
+        {
+          "id": "api-safety",
+          "owner": "agent-api",
+          "paths": [
+            "src/**"
+          ],
+          "depends_on": [
+            "integration"
+          ]
+        },
+        {
+          "id": "qa-contracts",
+          "owner": "agent-qa",
+          "paths": [
+            "scripts/**"
+          ],
+          "depends_on": [
+            "integration"
+          ]
+        }
       ]
     },
     {
       "id": "wave-4-integration",
       "tasks": [
-        {"id":"integration-2","owner":"agent-integrator","paths":["orchestrator/reports/**"],"depends_on":["pwa-resume","staging-smoke","api-safety","qa-contracts"]}
+        {
+          "id": "integration-2",
+          "owner": "agent-integrator",
+          "paths": [
+            "orchestrator/reports/**"
+          ],
+          "depends_on": [
+            "pwa-resume",
+            "staging-smoke",
+            "api-safety",
+            "qa-contracts"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wave-5-gpu-readiness",
+      "tasks": [
+        {
+          "id": "wan-r2",
+          "owner": "agent-wan",
+          "paths": [
+            "runpod-worker/**"
+          ],
+          "depends_on": [
+            "integration-2"
+          ]
+        },
+        {
+          "id": "api-runpod-contract",
+          "owner": "agent-api",
+          "paths": [
+            "src/**"
+          ],
+          "depends_on": [
+            "integration-2"
+          ]
+        },
+        {
+          "id": "pwa-cost-guard",
+          "owner": "agent-pwa",
+          "paths": [
+            "app/**"
+          ],
+          "depends_on": [
+            "integration-2"
+          ]
+        },
+        {
+          "id": "qa-runpod-safety",
+          "owner": "agent-qa",
+          "paths": [
+            "scripts/**"
+          ],
+          "depends_on": [
+            "integration-2"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wave-6-integration",
+      "tasks": [
+        {
+          "id": "integration-3",
+          "owner": "agent-integrator",
+          "paths": [
+            "orchestrator/reports/**"
+          ],
+          "depends_on": [
+            "wan-r2",
+            "api-runpod-contract",
+            "pwa-cost-guard",
+            "qa-runpod-safety"
+          ]
+        }
       ]
     }
   ]

@@ -15,6 +15,7 @@ This directory defines a bounded multi-agent workflow.
 - `agent-pwa`: iPhone/iPad PWA and reference assets.
 - `agent-cloudflare`: Workers, D1, R2, migrations and deployment.
 - `agent-api`: job API and persistence behavior.
+- `agent-wan`: Wan/RunPod worker packaging and durable result upload preparation.
 - `agent-qa`: release checks and regression tests.
 - `agent-integrator`: reviews compatibility and prepares integration; it does not bypass failed checks.
 
@@ -22,3 +23,6 @@ GitHub issues labelled `agent-task` are the work queue. The workflow creates the
 
 ## Current hardening wave
 Wave 3 focuses on resuming persistent jobs in the PWA, post-deploy staging smoke checks, API safety hardening and release-contract validation. Wave 4 integrates those changes before any paid-render work is considered.
+
+## GPU-readiness wave
+Wave 5 prepares the Wan worker, Cloudflare API contract, UI cost guard and release safety checks without enabling paid rendering. `ALLOW_REAL_GPU` remains `false`; any first real render still requires explicit human approval after GPU, duration, resolution and estimated cost are shown.
