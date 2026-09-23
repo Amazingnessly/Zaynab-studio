@@ -8,6 +8,7 @@ on:
       - app/**
       - src/**
       - scripts/**
+      - migrations/**
       - wrangler.staging.jsonc
       - package.json
       - .github/workflows/deploy-staging.yml
@@ -36,5 +37,7 @@ jobs:
         run: node scripts/validate-release.mjs
       - name: Install Wrangler
         run: npm install --no-audit --no-fund
+      - name: Apply staging D1 migrations
+        run: npm run d1:migrate:staging
       - name: Deploy staging
         run: npx wrangler deploy --config wrangler.staging.jsonc
