@@ -31,6 +31,18 @@ function cleanText(value, maxLength, fallback = null) {
   return text.slice(0, maxLength);
 }
 
+function safeJobId(raw) {
+  let id;
+  try { id = decodeURIComponent(raw); }
+  catch { return null; }
+  return /^[A-Za-z0-9_-]{1,120}$/.test(id) ? id : null;
+}
+
+function crossOriginWrite(request, url) {
+  const origin = request.headers.get("origin");
+  return Boolean(origin) && origin !== url.origin;
+}
+
 function validateGenerateInput(input) {
   const prompt = cleanText(input?.prompt, 12000);
   if (!prompt) return { error: "prompt requis" };
@@ -121,10 +133,10 @@ function publicJob(job) {
 async function listJobs(env, url) {
   if (!env.DB) return json({ error: "D1 non configuré" }, 503);
   const projectId = cleanText(url.searchParams.get("project_id"), 120);
-  const query = projectId
-    ? env.DB.prepare("SELECT * FROM video_jobs WHERE project_id = ? ORDER BY updated_at DESC LIMIT 30").bind(projectId)
-    : env.DB.prepare("SELECT * FROM video_jobs ORDER BY updated_at DESC LIMIT 30");
-  const result = await query.all();
+  if (!projectId) return json({ error: "project_id requis", code: "PROJECT_ID_REQUIRED" }, 400);
+  const result = await env.DB.prepare(
+    "SELECT * FROM video_jobs WHERE project_id = ? ORDER BY updated_at DESC LIMIT 30"
+  ).bind(projectId).all();
   return json({ jobs: (result.results || []).map(publicJob) });
 }
 
@@ -156,6 +168,9 @@ export default {
     }
 
     if (url.pathname === "/api/v1/generate" && request.method === "POST") {
+      if (crossOriginWrite(request, url)) {
+        return json({ error: "Origine non autorisée", code: "CROSS_ORIGIN_WRITE_BLOCKED" }, 403);
+      }
       if (!persistenceReady(env)) {
         return json({ error: "Persistance Cloudflare non configurée", code: "PERSISTENCE_NOT_BOUND" }, 503);
       }
@@ -185,7 +200,8 @@ export default {
     const jobMatch = url.pathname.match(/^\/api\/v1\/jobs\/([^/]+)$/);
     if (jobMatch && request.method === "GET") {
       if (!env.DB) return json({ error: "D1 non configuré" }, 503);
-      const id = decodeURIComponent(jobMatch[1]);
+      const id = safeJobId(jobMatch[1]);
+      if (!id) return json({ error: "Identifiant de tâche invalide" }, 400);
       const job = await readJob(env, id);
       if (!job) return json({ error: "Tâche introuvable" }, 404);
       return json(publicJob(job));
@@ -194,7 +210,8 @@ export default {
     const videoMatch = url.pathname.match(/^\/api\/v1\/videos\/([^/]+)$/);
     if (videoMatch && request.method === "GET") {
       if (!persistenceReady(env)) return json({ error: "Persistance non configurée" }, 503);
-      const id = decodeURIComponent(videoMatch[1]);
+      const id = safeJobId(videoMatch[1]);
+      if (!id) return json({ error: "Identifiant de tâche invalide" }, 400);
       const job = await env.DB.prepare("SELECT video_key FROM video_jobs WHERE id = ?").bind(id).first();
       if (!job?.video_key) return json({ error: "Vidéo indisponible" }, 404);
       const object = await env.VIDEOS.get(job.video_key);
