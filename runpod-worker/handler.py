@@ -1,17 +1,16 @@
 import base64
-import os
 import re
 import subprocess
 import tempfile
 import time
 from pathlib import Path
+from urllib.parse import urlparse
 
-import boto3
+import requests
 import runpod
 
-WAN_DIR = Path(os.getenv("WAN_DIR", "/workspace/Wan2.2"))
-CKPT_DIR = Path(os.getenv("WAN_CKPT_DIR", "/runpod-volume/Wan2.2-TI2V-5B"))
-R2_BUCKET = os.getenv("R2_BUCKET", "zaynab-studio-videos")
+WAN_DIR = Path(__import__("os").getenv("WAN_DIR", "/workspace/Wan2.2"))
+CKPT_DIR = Path(__import__("os").getenv("WAN_CKPT_DIR", "/runpod-volume/Wan2.2-TI2V-5B"))
 
 
 def data_uri_to_file(data_uri: str, path: Path):
@@ -29,19 +28,14 @@ def data_uri_to_file(data_uri: str, path: Path):
     path.write_bytes(payload)
 
 
-def r2_client():
-    endpoint = os.getenv("R2_ENDPOINT_URL", "").strip()
-    access_key = os.getenv("R2_ACCESS_KEY_ID", "").strip()
-    secret_key = os.getenv("R2_SECRET_ACCESS_KEY", "").strip()
-    if not endpoint or not access_key or not secret_key or not R2_BUCKET:
-        raise RuntimeError("configuration R2 incomplète")
-    return boto3.client(
-        "s3",
-        endpoint_url=endpoint,
-        aws_access_key_id=access_key,
-        aws_secret_access_key=secret_key,
-        region_name="auto",
-    )
+def validate_upload_target(upload_url: str, upload_token: str):
+    parsed = urlparse(upload_url)
+    if parsed.scheme != "https" or not parsed.netloc:
+        raise ValueError("upload_url HTTPS invalide")
+    if not parsed.path.startswith("/api/v1/uploads/"):
+        raise ValueError("upload_url non autorisée")
+    if len(upload_token) < 32 or len(upload_token) > 256:
+        raise ValueError("upload_token invalide")
 
 
 def find_generated_mp4(started_at: float, output_text: str) -> Path:
@@ -67,19 +61,38 @@ def find_generated_mp4(started_at: float, output_text: str) -> Path:
     return max(candidates, key=lambda path: path.stat().st_mtime)
 
 
-def upload_video(video_path: Path, job_id: str) -> str:
-    safe_job_id = re.sub(r"[^A-Za-z0-9_-]", "_", job_id)[:120] or "runpod"
-    key = f"videos/{safe_job_id}.mp4"
-    r2_client().upload_file(
-        str(video_path),
-        R2_BUCKET,
-        key,
-        ExtraArgs={
-            "ContentType": "video/mp4",
-            "CacheControl": "private, max-age=3600",
-        },
-    )
-    return key
+def upload_video(video_path: Path, upload_url: str, upload_token: str) -> dict:
+    validate_upload_target(upload_url, upload_token)
+    size = video_path.stat().st_size
+    if size <= 0:
+        raise RuntimeError("MP4 généré vide")
+    if size > 100 * 1024 * 1024:
+        raise RuntimeError("MP4 généré trop volumineux")
+
+    headers = {
+        "Authorization": f"Bearer {upload_token}",
+        "Content-Type": "video/mp4",
+        "Content-Length": str(size),
+    }
+    with video_path.open("rb") as handle:
+        response = requests.put(
+            upload_url,
+            data=handle,
+            headers=headers,
+            timeout=(10, 300),
+            allow_redirects=False,
+        )
+    if response.status_code not in {200, 201}:
+        raise RuntimeError(f"upload Cloudflare refusé ({response.status_code})")
+
+    try:
+        result = response.json()
+    except ValueError as exc:
+        raise RuntimeError("réponse d’upload Cloudflare invalide") from exc
+
+    if not result.get("ok") or not result.get("video_key"):
+        raise RuntimeError("upload Cloudflare incomplet")
+    return result
 
 
 def handler(job):
@@ -88,6 +101,8 @@ def handler(job):
     image = str(payload.get("reference_image", "")).strip()
     mode = payload.get("mode", "Brouillon")
     job_id = str(payload.get("job_id") or job.get("id") or "").strip()
+    upload_url = str(payload.get("upload_url", "")).strip()
+    upload_token = str(payload.get("upload_token", "")).strip()
 
     if not prompt:
         return {"status": "error", "message": "prompt manquant"}
@@ -99,6 +114,10 @@ def handler(job):
         return {"status": "error", "message": "mode invalide"}
     if not job_id:
         return {"status": "error", "message": "job_id manquant"}
+    try:
+        validate_upload_target(upload_url, upload_token)
+    except ValueError as exc:
+        return {"status": "error", "message": str(exc)}
 
     with tempfile.TemporaryDirectory() as tmp:
         image_path = Path(tmp) / "reference.jpg"
@@ -153,20 +172,20 @@ def handler(job):
         runpod.serverless.progress_update(job, "90% recherche du MP4")
         try:
             video_path = find_generated_mp4(started_at, proc.stdout + "\n" + proc.stderr)
-            runpod.serverless.progress_update(job, "95% upload R2")
-            video_key = upload_video(video_path, job_id)
+            runpod.serverless.progress_update(job, "95% upload sécurisé Cloudflare")
+            upload_result = upload_video(video_path, upload_url, upload_token)
         except Exception as exc:
             return {
                 "status": "error",
-                "message": f"persistance R2 échouée: {exc}",
+                "message": f"persistance vidéo échouée: {exc}",
             }
 
         return {
             "status": "success",
             "engine": "wan-2.2-ti2v-5b",
-            "video_key": video_key,
-            "bytes": video_path.stat().st_size,
-            "message": "Wan terminé et MP4 stocké durablement dans R2.",
+            "video_key": upload_result["video_key"],
+            "bytes": upload_result.get("uploaded_bytes", video_path.stat().st_size),
+            "message": "Wan terminé et MP4 stocké durablement via Cloudflare.",
         }
 
 

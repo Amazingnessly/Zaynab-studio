@@ -11,8 +11,11 @@ const required = [
   'wrangler.jsonc',
   'wrangler.staging.jsonc',
   'migrations/0001_jobs.sql',
+  'migrations/0002_upload_grants.sql',
   'runpod-worker/handler.py',
-  'runpod-worker/requirements.txt'
+  'runpod-worker/requirements.txt',
+  'runpod-worker/Dockerfile',
+  'runpod-worker/README.md'
 ];
 
 let failed = false;
@@ -80,6 +83,12 @@ for (const column of ['cost_eur', 'video_key', 'error', 'updated_at']) {
 }
 if (!failed) ok('persistent job schema contains result and cost fields');
 
+const uploadMigration = await readFile('migrations/0002_upload_grants.sql', 'utf8');
+for (const column of ['upload_token_hash', 'upload_expires_at', 'uploaded_bytes']) {
+  if (!uploadMigration.includes(column)) fail(`upload-grant schema missing column: ${column}`);
+}
+if (!failed) ok('one-time upload grant schema is present');
+
 const staging = JSON.parse(await readFile('wrangler.staging.jsonc', 'utf8'));
 if (staging?.vars?.ALLOW_REAL_GPU !== 'false') {
   fail('staging must keep ALLOW_REAL_GPU=false');
@@ -99,7 +108,7 @@ if (!staging?.r2_buckets?.some(bucket => bucket.binding === 'VIDEOS' && bucket.b
 
 const worker = await readFile('src/worker.js', 'utf8');
 const normalizedWorker = worker.replace(/\\\//g, '/');
-for (const route of ['/api/health', '/api/v1/generate', '/api/v1/jobs/', '/api/v1/videos/']) {
+for (const route of ['/api/health', '/api/v1/generate', '/api/v1/jobs/', '/api/v1/videos/', '/api/v1/uploads/']) {
   if (!normalizedWorker.includes(route)) fail(`worker route missing: ${route}`);
 }
 if (!worker.includes('real_gpu_allowed: false')) {
@@ -119,6 +128,12 @@ for (const paidGuard of ['GPU_QUOTE', '/api/v1/render-quote', 'A6000 / A40 class
 if (!worker.includes('quote_status: "informational_only"')) fail('render quote must remain informational only');
 else ok('render quote cannot activate paid compute');
 
+for (const uploadGuard of ['hashUploadToken', 'upload_token_hash', 'upload_expires_at', 'MAX_UPLOAD_BYTES', 'UPLOAD_TOKEN_REQUIRED', 'UPLOAD_TOKEN_USED']) {
+  if (!worker.includes(uploadGuard)) fail(`secure upload contract missing: ${uploadGuard}`);
+}
+if (!worker.includes('Authorization') && !worker.includes('authorization')) fail('secure upload must require bearer authorization');
+else ok('Cloudflare one-time upload route is authenticated');
+
 const runpodHandler = await readFile('runpod-worker/handler.py', 'utf8');
 const runpodRequirements = await readFile('runpod-worker/requirements.txt', 'utf8');
 try {
@@ -132,18 +147,18 @@ if (!runpodHandler.includes('timeout=1200') && !runpodHandler.includes('timeout 
 } else {
   ok('RunPod generation timeout is bounded');
 }
-for (const literal of ['sk-proj-', 'CLOUDFLARE_API_TOKEN=', 'RUNPOD_API_KEY=', 'R2_SECRET_ACCESS_KEY=']) {
+for (const literal of ['sk-proj-', 'CLOUDFLARE_API_TOKEN=', 'RUNPOD_API_KEY=', 'R2_SECRET_ACCESS_KEY=', 'R2_ACCESS_KEY_ID=', 'R2_ENDPOINT_URL=']) {
   if (runpodHandler.includes(literal)) fail(`possible committed secret literal in RunPod worker: ${literal}`);
 }
-if (runpodHandler.includes('video_key')) {
-  for (const envName of ['R2_ENDPOINT_URL', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY']) {
-    if (!runpodHandler.includes(envName)) fail(`durable RunPod upload missing env contract: ${envName}`);
-  }
-  if (!runpodRequirements.includes('boto3')) fail('durable RunPod R2 upload requires boto3');
-  else ok('RunPod durable R2 upload contract is present');
-} else {
-  ok('RunPod durable upload not active on this branch; real GPU remains locked');
+for (const forbidden of ['boto3', 'R2_SECRET_ACCESS_KEY', 'R2_ACCESS_KEY_ID', 'R2_ENDPOINT_URL']) {
+  if (runpodHandler.includes(forbidden)) fail(`RunPod worker must not require static R2 credentials: ${forbidden}`);
 }
+for (const uploadContract of ['upload_url', 'upload_token', 'Authorization', 'requests.put']) {
+  if (!runpodHandler.includes(uploadContract)) fail(`RunPod one-time upload contract missing: ${uploadContract}`);
+}
+if (!runpodRequirements.includes('requests')) fail('RunPod secure upload requires requests');
+if (runpodRequirements.includes('boto3')) fail('RunPod worker should not depend on boto3 after secure upload refactor');
+if (!failed) ok('RunPod uploads through a one-time Cloudflare grant without R2 credentials');
 
 const frontendFiles = ['app/index.html', 'app/sw.js', 'app/manifest.webmanifest'];
 const forbiddenFrontendSecrets = [
