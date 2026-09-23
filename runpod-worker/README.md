@@ -5,7 +5,7 @@ This directory contains the Zaynab Studio Wan 2.2 TI2V worker. It is prepared fo
 ## Container
 
 The Dockerfile pins:
-- RunPod PyTorch 2.8 / CUDA 12.8 base image.
+- Official PyTorch 2.8 / CUDA 12.8 / cuDNN 9 development base image, suitable for a custom RunPod Serverless container.
 - Wan2.2 source commit `1ea34ff48f87168174e12956e200b1d908b1c5ff`.
 - Zaynab Studio's `handler.py`.
 
