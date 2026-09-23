@@ -18,7 +18,18 @@ RUN git clone https://github.com/Wan-Video/Wan2.2.git \
     && git checkout "$WAN_COMMIT"
 
 RUN python -m pip install --upgrade pip setuptools wheel \
-    && python -m pip install --no-cache-dir -r /opt/Wan2.2/requirements.txt
+    && grep -v -E '^flash_attn([<>= ].*)?
+
+WORKDIR /opt/zaynab-worker
+COPY requirements.txt ./requirements.txt
+RUN python -m pip install --no-cache-dir -r requirements.txt
+
+COPY handler.py ./handler.py
+
+CMD ["python", "-u", "handler.py"]
+ /opt/Wan2.2/requirements.txt > /tmp/wan-requirements.txt \
+    && python -m pip install --no-cache-dir -r /tmp/wan-requirements.txt \
+    && MAX_JOBS=2 python -m pip install --no-cache-dir --no-build-isolation "flash-attn==2.8.3.post1"
 
 WORKDIR /opt/zaynab-worker
 COPY requirements.txt ./requirements.txt
