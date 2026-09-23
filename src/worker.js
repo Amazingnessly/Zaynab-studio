@@ -11,6 +11,8 @@ const ENGINE = "wan-2.2-ti2v-5b";
 const ALLOWED_MODES = new Set(["Brouillon", "Qualité"]);
 const ALLOWED_FORMATS = new Set(["9:16", "1:1"]);
 const ALLOWED_DURATIONS = new Set(["5 s", "8 s", "10 s"]);
+const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
+const UPLOAD_GRANT_TTL_SECONDS = 30 * 60;
 const GPU_READINESS = Object.freeze({
   engine: ENGINE,
   resolution: "704x1280",
@@ -82,6 +84,51 @@ function safeJobId(raw) {
 function crossOriginWrite(request, url) {
   const origin = request.headers.get("origin");
   return Boolean(origin) && origin !== url.origin;
+}
+
+function bytesToHex(bytes) {
+  return [...new Uint8Array(bytes)].map(byte => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function hashUploadToken(token) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
+  return bytesToHex(digest);
+}
+
+function bearerToken(request) {
+  const value = request.headers.get("authorization") || "";
+  const match = value.match(/^Bearer\s+(.+)$/i);
+  return match ? match[1].trim() : null;
+}
+
+async function createUploadGrant(env, jobId, origin) {
+  const token = crypto.randomUUID().replaceAll("-", "") + crypto.randomUUID().replaceAll("-", "");
+  const tokenHash = await hashUploadToken(token);
+  const expiresAt = new Date(Date.now() + UPLOAD_GRANT_TTL_SECONDS * 1000).toISOString();
+  const now = new Date().toISOString();
+  await env.DB.prepare(
+    "UPDATE video_jobs SET upload_token_hash = ?, upload_expires_at = ?, updated_at = ? WHERE id = ?"
+  ).bind(tokenHash, expiresAt, now, jobId).run();
+  return {
+    upload_url: `${origin}/api/v1/uploads/${encodeURIComponent(jobId)}`,
+    upload_token: token,
+    upload_expires_at: expiresAt
+  };
+}
+
+function limitedUploadBody(body, maxBytes, onChunk) {
+  let total = 0;
+  return body.pipeThrough(new TransformStream({
+    transform(chunk, controller) {
+      total += chunk.byteLength;
+      onChunk(total);
+      if (total > maxBytes) {
+        controller.error(new Error("UPLOAD_TOO_LARGE"));
+        return;
+      }
+      controller.enqueue(chunk);
+    }
+  }));
 }
 
 function validateGenerateInput(input) {
@@ -253,6 +300,81 @@ export default {
 
       const id = await createMockJob(env, checked.value);
       return json({ job_id: id, status: "processing", mode: "mock", cost_eur: 0 }, 202);
+    }
+
+    const uploadMatch = url.pathname.match(/^\/api\/v1\/uploads\/([^/]+)$/);
+    if (uploadMatch && request.method === "PUT") {
+      if (!persistenceReady(env)) return json({ error: "Persistance non configurée" }, 503);
+
+      const id = safeJobId(uploadMatch[1]);
+      if (!id || id.startsWith("mock_")) return json({ error: "Identifiant de tâche invalide" }, 400);
+
+      const token = bearerToken(request);
+      if (!token) return json({ error: "Jeton d’upload requis", code: "UPLOAD_TOKEN_REQUIRED" }, 401);
+
+      const contentType = (request.headers.get("content-type") || "").toLowerCase();
+      if (!contentType.startsWith("video/mp4")) {
+        return json({ error: "Seuls les MP4 sont acceptés", code: "INVALID_UPLOAD_TYPE" }, 415);
+      }
+      if (!request.body) return json({ error: "Corps vidéo requis" }, 400);
+
+      const declaredLength = Number(request.headers.get("content-length") || 0);
+      if (Number.isFinite(declaredLength) && declaredLength > MAX_UPLOAD_BYTES) {
+        return json({ error: "Vidéo trop volumineuse", code: "UPLOAD_TOO_LARGE" }, 413);
+      }
+
+      const tokenHash = await hashUploadToken(token);
+      const grant = await env.DB.prepare(
+        "SELECT upload_token_hash, upload_expires_at FROM video_jobs WHERE id = ?"
+      ).bind(id).first();
+      if (!grant?.upload_token_hash || grant.upload_token_hash !== tokenHash) {
+        return json({ error: "Jeton d’upload invalide ou déjà utilisé", code: "INVALID_UPLOAD_TOKEN" }, 403);
+      }
+      if (!grant.upload_expires_at || Date.parse(grant.upload_expires_at) <= Date.now()) {
+        return json({ error: "Jeton d’upload expiré", code: "UPLOAD_TOKEN_EXPIRED" }, 410);
+      }
+
+      const now = new Date().toISOString();
+      const claim = await env.DB.prepare(
+        "UPDATE video_jobs SET upload_token_hash = NULL, status = 'uploading', progress = 95, updated_at = ? WHERE id = ? AND upload_token_hash = ?"
+      ).bind(now, id, tokenHash).run();
+      if (!claim.meta?.changes) {
+        return json({ error: "Jeton d’upload déjà consommé", code: "UPLOAD_TOKEN_USED" }, 409);
+      }
+
+      const videoKey = `videos/${id}.mp4`;
+      let uploadedBytes = 0;
+      try {
+        const body = limitedUploadBody(request.body, MAX_UPLOAD_BYTES, total => { uploadedBytes = total; });
+        await env.VIDEOS.put(videoKey, body, {
+          httpMetadata: {
+            contentType: "video/mp4",
+            cacheControl: "private, max-age=3600"
+          },
+          customMetadata: { job_id: id }
+        });
+      } catch (error) {
+        const code = error?.message === "UPLOAD_TOO_LARGE" ? "UPLOAD_TOO_LARGE" : "UPLOAD_FAILED";
+        await env.DB.prepare(
+          "UPDATE video_jobs SET status = 'failed', error = ?, upload_expires_at = NULL, updated_at = ? WHERE id = ?"
+        ).bind(code, new Date().toISOString(), id).run();
+        return json(
+          { error: code === "UPLOAD_TOO_LARGE" ? "Vidéo trop volumineuse" : "Échec de l’upload vidéo", code },
+          code === "UPLOAD_TOO_LARGE" ? 413 : 500
+        );
+      }
+
+      await env.DB.prepare(
+        "UPDATE video_jobs SET status = 'completed', progress = 100, video_key = ?, uploaded_bytes = ?, error = NULL, upload_expires_at = NULL, updated_at = ? WHERE id = ?"
+      ).bind(videoKey, uploadedBytes, new Date().toISOString(), id).run();
+
+      return json({
+        ok: true,
+        job_id: id,
+        status: "completed",
+        video_key: videoKey,
+        uploaded_bytes: uploadedBytes
+      }, 201);
     }
 
     const jobMatch = url.pathname.match(/^\/api\/v1\/jobs\/([^/]+)$/);
