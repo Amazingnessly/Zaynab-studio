@@ -1,8 +1,13 @@
 {
-  "version": 1,
+  "version": 2,
   "max_parallel_agents": 4,
   "max_auto_repair_attempts": 2,
   "gpu_policy": "human_approval_required",
+  "budget": {
+    "openai_api_monthly_eur": 5,
+    "openai_api_default": "disabled",
+    "hard_stop_required": true
+  },
   "waves": [
     {
       "id": "wave-1-foundation",
@@ -16,7 +21,22 @@
     {
       "id": "wave-2-integration",
       "tasks": [
-        {"id":"integration","owner":"agent-integrator","depends_on":["pwa","storage","api","qa"]}
+        {"id":"integration","owner":"agent-integrator","paths":["orchestrator/reports/**"],"depends_on":["pwa","storage","api","qa"]}
+      ]
+    },
+    {
+      "id": "wave-3-hardening",
+      "tasks": [
+        {"id":"pwa-resume","owner":"agent-pwa","paths":["app/**"],"depends_on":["integration"]},
+        {"id":"staging-smoke","owner":"agent-cloudflare","paths":[".github/workflows/**"],"depends_on":["integration"]},
+        {"id":"api-safety","owner":"agent-api","paths":["src/**"],"depends_on":["integration"]},
+        {"id":"qa-contracts","owner":"agent-qa","paths":["scripts/**"],"depends_on":["integration"]}
+      ]
+    },
+    {
+      "id": "wave-4-integration",
+      "tasks": [
+        {"id":"integration-2","owner":"agent-integrator","paths":["orchestrator/reports/**"],"depends_on":["pwa-resume","staging-smoke","api-safety","qa-contracts"]}
       ]
     }
   ]
