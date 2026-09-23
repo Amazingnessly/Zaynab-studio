@@ -8,6 +8,7 @@ This directory defines a bounded multi-agent workflow.
 - CI is the gate. A failing validation blocks integration.
 - Maximum automatic repair attempts: 2.
 - The orchestrator never enables paid GPU work. `ALLOW_REAL_GPU` stays false unless a human explicitly approves a real render.
+- OpenAI API usage is disabled by default. If a future runner uses an API key, the Zaynab Studio project must use a hard monthly stop at **5 €** and stop work before exceeding it.
 - A new wave is eligible only when dependencies from the previous wave are merged and validation is green.
 
 ## Agent roles
@@ -18,3 +19,6 @@ This directory defines a bounded multi-agent workflow.
 - `agent-integrator`: reviews compatibility and prepares integration; it does not bypass failed checks.
 
 GitHub issues labelled `agent-task` are the work queue. The workflow creates the bounded wave from `plan.json`; agents or an external agent runner can claim those issues. Completion/merge events cause the orchestrator to reevaluate the next wave.
+
+## Current hardening wave
+Wave 3 focuses on resuming persistent jobs in the PWA, post-deploy staging smoke checks, API safety hardening and release-contract validation. Wave 4 integrates those changes before any paid-render work is considered.
