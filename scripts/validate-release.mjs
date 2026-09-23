@@ -1,3 +1,4 @@
+// Paid-render preflight checks run against the current PR base.
 import { access, readFile } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
 
