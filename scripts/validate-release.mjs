@@ -52,6 +52,26 @@ if (manifest.name !== 'Zaynab Studio' || manifest.display !== 'standalone' || !m
   ok('PWA manifest is installable');
 }
 
+const index = await readFile('app/index.html', 'utf8');
+for (const legacy of ['assets/zaynab-1.jpeg', 'assets/zaynab-2.png', 'assets/zaynab-3.png']) {
+  if (index.includes(legacy)) fail(`legacy PWA reference path still used: ${legacy}`);
+}
+for (const official of [
+  'assets/references/portrait-main.jpg',
+  'assets/references/portrait-alt.jpg',
+  'assets/references/supermarket.jpg'
+]) {
+  if (!index.includes(official)) fail(`official PWA reference missing: ${official}`);
+}
+if (/Codespaces/i.test(index)) fail('PWA still contains obsolete Codespaces instructions');
+else ok('PWA uses official references without obsolete setup copy');
+
+const migration = await readFile('migrations/0001_jobs.sql', 'utf8');
+for (const column of ['cost_eur', 'video_key', 'error', 'updated_at']) {
+  if (!migration.includes(column)) fail(`persistent job schema missing column: ${column}`);
+}
+if (!failed) ok('persistent job schema contains result and cost fields');
+
 const staging = JSON.parse(await readFile('wrangler.staging.jsonc', 'utf8'));
 if (staging?.vars?.ALLOW_REAL_GPU !== 'false') {
   fail('staging must keep ALLOW_REAL_GPU=false');
@@ -79,6 +99,11 @@ if (!worker.includes('real_gpu_allowed: false')) {
 } else {
   ok('worker reports the GPU safety lock');
 }
+
+for (const contract of ['ALLOWED_MODES', 'ALLOWED_FORMATS', 'ALLOWED_DURATIONS', 'PROMPT_TOO_LONG']) {
+  if (!worker.includes(contract)) fail(`worker input contract missing: ${contract}`);
+}
+if (!failed) ok('worker validates bounded generation inputs');
 
 const frontendFiles = ['app/index.html', 'app/sw.js', 'app/manifest.webmanifest'];
 const forbiddenFrontendSecrets = [
