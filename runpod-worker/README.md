@@ -63,3 +63,17 @@ docker push <registry>/zaynab-wan-worker:<version>
 ```
 
 Building and pushing the image does not itself launch a GPU job. Creating or invoking the Serverless endpoint can incur RunPod charges, so that step remains human-controlled.
+
+
+## Cloudflare submission gate
+
+The Cloudflare API now has a prepared `/api/v1/real-generate` bridge for the first benchmark. It is fail-closed and cannot submit to RunPod unless all of these are true at the same time:
+
+- `ALLOW_REAL_GPU=true` on the Worker.
+- `RUNPOD_API_KEY` and `RUNPOD_ENDPOINT_ID` exist as server-side secrets.
+- `REAL_GPU_APPROVAL_TOKEN` exists as a server-side secret.
+- The request supplies that approval token in `x-zaynab-render-approval`.
+- The request explicitly approves a maximum EUR amount within the hard-coded first-render ceiling.
+- The render profile is exactly Brouillon, 5 s, 9:16.
+
+The normal `/api/v1/generate` route remains mock-only. There is no automatic paid retry.
