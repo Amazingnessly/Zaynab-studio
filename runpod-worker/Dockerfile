@@ -6,7 +6,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PYTHONUNBUFFERED=1 \
     WAN_DIR=/opt/Wan2.2 \
-    WAN_CKPT_DIR=/runpod-volume/Wan2.2-TI2V-5B
+    WAN_MODEL_ID=Wan-AI/Wan2.2-TI2V-5B
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends git ffmpeg ca-certificates \
