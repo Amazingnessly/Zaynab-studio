@@ -9,8 +9,9 @@ from urllib.parse import urlparse
 import requests
 import runpod
 
-WAN_DIR = Path(__import__("os").getenv("WAN_DIR", "/workspace/Wan2.2"))
-CKPT_DIR = Path(__import__("os").getenv("WAN_CKPT_DIR", "/runpod-volume/Wan2.2-TI2V-5B"))
+WAN_DIR = Path(__import__("os").getenv("WAN_DIR", "/opt/Wan2.2"))
+WAN_MODEL_ID = __import__("os").getenv("WAN_MODEL_ID", "Wan-AI/Wan2.2-TI2V-5B").strip()
+WAN_CKPT_DIR = __import__("os").getenv("WAN_CKPT_DIR", "").strip()
 
 
 def data_uri_to_file(data_uri: str, path: Path):
@@ -36,6 +37,34 @@ def validate_upload_target(upload_url: str, upload_token: str):
         raise ValueError("upload_url non autorisée")
     if len(upload_token) < 32 or len(upload_token) > 256:
         raise ValueError("upload_token invalide")
+
+
+def resolve_checkpoint_dir() -> Path:
+    if WAN_CKPT_DIR:
+        explicit = Path(WAN_CKPT_DIR)
+        if explicit.exists():
+            return explicit
+
+    if "/" not in WAN_MODEL_ID:
+        raise RuntimeError("WAN_MODEL_ID invalide")
+
+    org, name = WAN_MODEL_ID.split("/", 1)
+    model_root = (
+        Path("/runpod-volume/huggingface-cache/hub")
+        / f"models--{org}--{name}"
+        / "snapshots"
+    )
+    if not model_root.exists():
+        raise RuntimeError(
+            f"modèle RunPod cache introuvable: {WAN_MODEL_ID}"
+        )
+
+    snapshots = [path for path in model_root.iterdir() if path.is_dir()]
+    if not snapshots:
+        raise RuntimeError(
+            f"aucun snapshot RunPod cache disponible: {WAN_MODEL_ID}"
+        )
+    return max(snapshots, key=lambda path: path.stat().st_mtime)
 
 
 def find_generated_mp4(started_at: float, output_text: str) -> Path:
@@ -100,6 +129,7 @@ def handler(job):
     prompt = str(payload.get("prompt", "")).strip()
     image = str(payload.get("reference_image", "")).strip()
     mode = payload.get("mode", "Brouillon")
+    duration = str(payload.get("duration", "5 s")).strip()
     job_id = str(payload.get("job_id") or job.get("id") or "").strip()
     upload_url = str(payload.get("upload_url", "")).strip()
     upload_token = str(payload.get("upload_token", "")).strip()
@@ -112,6 +142,9 @@ def handler(job):
         return {"status": "error", "message": "image de référence manquante"}
     if mode not in {"Brouillon", "Qualité"}:
         return {"status": "error", "message": "mode invalide"}
+    frame_num_by_duration = {"5 s": 121, "8 s": 193, "10 s": 241}
+    if duration not in frame_num_by_duration:
+        return {"status": "error", "message": "durée invalide"}
     if not job_id:
         return {"status": "error", "message": "job_id manquant"}
     try:
@@ -127,6 +160,11 @@ def handler(job):
             return {"status": "error", "message": str(exc)}
 
         steps = "28" if mode == "Brouillon" else "50"
+        try:
+            checkpoint_dir = resolve_checkpoint_dir()
+        except RuntimeError as exc:
+            return {"status": "error", "message": str(exc)}
+
         runpod.serverless.progress_update(job, "10% préparation")
         cmd = [
             "python",
@@ -136,7 +174,7 @@ def handler(job):
             "--size",
             "704*1280",
             "--ckpt_dir",
-            str(CKPT_DIR),
+            str(checkpoint_dir),
             "--offload_model",
             "True",
             "--convert_model_dtype",
@@ -145,6 +183,8 @@ def handler(job):
             str(image_path),
             "--prompt",
             prompt,
+            "--frame_num",
+            str(frame_num_by_duration[duration]),
             "--sample_steps",
             steps,
         ]
@@ -183,6 +223,8 @@ def handler(job):
         return {
             "status": "success",
             "engine": "wan-2.2-ti2v-5b",
+            "duration": duration,
+            "frame_num": frame_num_by_duration[duration],
             "video_key": upload_result["video_key"],
             "bytes": upload_result.get("uploaded_bytes", video_path.stat().st_size),
             "message": "Wan terminé et MP4 stocké durablement via Cloudflare.",

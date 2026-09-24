@@ -63,6 +63,11 @@ jobs:
           READINESS=$(curl -fsS "$BASE/v1/gpu-readiness")
           printf '%s' "$READINESS" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);if(j.real_gpu_allowed!==false||j.ready_for_paid_activation!==false||j.human_approval_required!==true)process.exit(1)})"
 
+          REAL_STATUS=$(curl -sS -o /tmp/zaynab-real-probe.json -w '%{http_code}' -X POST "$BASE/v1/real-generate" \
+            -H 'content-type: application/json' \
+            --data '{"project_id":"ci-smoke","title":"Blocked real smoke","prompt":"Must never reach RunPod.","mode":"Brouillon","format":"9:16","duration":"5 s","approved_max_eur":0.50}')
+          test "$REAL_STATUS" = "423" || { cat /tmp/zaynab-real-probe.json; echo "Real GPU route did not fail closed"; exit 1; }
+
           UPLOAD_STATUS=$(curl -sS -o /tmp/zaynab-upload-probe.json -w '%{http_code}' -X PUT "$BASE/v1/uploads/ci-probe" -H 'content-type: video/mp4' --data-binary '')
           test "$UPLOAD_STATUS" = "401" || { cat /tmp/zaynab-upload-probe.json; echo "Unauthenticated upload route was not rejected"; exit 1; }
 

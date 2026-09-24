@@ -12,6 +12,8 @@ const required = [
   'wrangler.staging.jsonc',
   'migrations/0001_jobs.sql',
   'migrations/0002_upload_grants.sql',
+  'migrations/0003_real_gpu_audit.sql',
+  'src/runpod.js',
   'runpod-worker/handler.py',
   'runpod-worker/requirements.txt',
   'runpod-worker/Dockerfile',
@@ -89,6 +91,12 @@ for (const column of ['upload_token_hash', 'upload_expires_at', 'uploaded_bytes'
 }
 if (!failed) ok('one-time upload grant schema is present');
 
+const gpuAuditMigration = await readFile('migrations/0003_real_gpu_audit.sql', 'utf8');
+for (const column of ['approved_cost_eur', 'approval_at', 'provider_execution_ms']) {
+  if (!gpuAuditMigration.includes(column)) fail(`real GPU audit schema missing column: ${column}`);
+}
+if (!failed) ok('real GPU approval audit schema is present');
+
 const staging = JSON.parse(await readFile('wrangler.staging.jsonc', 'utf8'));
 if (staging?.vars?.ALLOW_REAL_GPU !== 'false') {
   fail('staging must keep ALLOW_REAL_GPU=false');
@@ -107,8 +115,15 @@ if (!staging?.r2_buckets?.some(bucket => bucket.binding === 'VIDEOS' && bucket.b
 }
 
 const worker = await readFile('src/worker.js', 'utf8');
+try {
+  execFileSync('node', ['--check', 'src/worker.js'], { stdio: 'pipe' });
+  execFileSync('node', ['--check', 'src/runpod.js'], { stdio: 'pipe' });
+  ok('Cloudflare worker and RunPod client syntax are valid');
+} catch {
+  fail('Cloudflare worker or RunPod client syntax is invalid');
+}
 const normalizedWorker = worker.replace(/\\\//g, '/');
-for (const route of ['/api/health', '/api/v1/generate', '/api/v1/jobs/', '/api/v1/videos/', '/api/v1/uploads/']) {
+for (const route of ['/api/health', '/api/v1/generate', '/api/v1/real-generate', '/api/v1/jobs/', '/api/v1/videos/', '/api/v1/uploads/']) {
   if (!normalizedWorker.includes(route)) fail(`worker route missing: ${route}`);
 }
 if (!worker.includes('real_gpu_allowed: false')) {
@@ -127,6 +142,12 @@ for (const paidGuard of ['GPU_QUOTE', '/api/v1/render-quote', 'A6000 / A40 class
 }
 if (!worker.includes('quote_status: "informational_only"')) fail('render quote must remain informational only');
 else ok('render quote cannot activate paid compute');
+
+for (const realGuard of ['REAL_GPU_APPROVAL_TOKEN', 'HUMAN_APPROVAL_REQUIRED', 'FIRST_REAL_RENDER_MAX_EUR', 'FIRST_REAL_RENDER_DURATION', 'approved_max_eur']) {
+  if (!worker.includes(realGuard)) fail(`real GPU human gate missing: ${realGuard}`);
+}
+if (!worker.includes('env.ALLOW_REAL_GPU !== "true"')) fail('real GPU route must fail closed unless ALLOW_REAL_GPU=true');
+else ok('real GPU route requires flag, secret approval and cost ceiling');
 
 for (const uploadGuard of ['hashUploadToken', 'upload_token_hash', 'upload_expires_at', 'MAX_UPLOAD_BYTES', 'UPLOAD_TOKEN_REQUIRED', 'UPLOAD_TOKEN_USED']) {
   if (!worker.includes(uploadGuard)) fail(`secure upload contract missing: ${uploadGuard}`);
@@ -160,11 +181,25 @@ if (!runpodRequirements.includes('requests')) fail('RunPod secure upload require
 if (runpodRequirements.includes('boto3')) fail('RunPod worker should not depend on boto3 after secure upload refactor');
 if (!failed) ok('RunPod uploads through a one-time Cloudflare grant without R2 credentials');
 
+for (const cacheContract of ['WAN_MODEL_ID', 'huggingface-cache', 'resolve_checkpoint_dir', 'Wan-AI/Wan2.2-TI2V-5B']) {
+  if (!runpodHandler.includes(cacheContract)) fail(`RunPod cached-model contract missing: ${cacheContract}`);
+}
+if (!failed) ok('RunPod worker resolves the cached Wan model without a paid network volume');
+
+
+const runpodClient = await readFile('src/runpod.js', 'utf8');
+for (const contract of ['/run', '/status/', 'executionTimeout', 'ttl', 'Bearer']) {
+  if (!runpodClient.includes(contract)) fail(`RunPod client contract missing: ${contract}`);
+}
+if (runpodClient.includes('/retry')) fail('automatic paid RunPod retry must remain disabled');
+else ok('RunPod async client uses bounded execution without automatic paid retry');
+
 const frontendFiles = ['app/index.html', 'app/sw.js', 'app/manifest.webmanifest'];
 const forbiddenFrontendSecrets = [
   'RUNPOD_API_KEY',
   'CLOUDFLARE_API_TOKEN',
   'OPENAI_API_KEY',
+  'REAL_GPU_APPROVAL_TOKEN',
   'sk-proj-'
 ];
 for (const file of frontendFiles) {
