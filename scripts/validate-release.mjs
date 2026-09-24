@@ -14,6 +14,7 @@ const required = [
   'migrations/0002_upload_grants.sql',
   'migrations/0003_real_gpu_audit.sql',
   'src/runpod.js',
+  'scripts/test-runpod-client.mjs',
   'runpod-worker/handler.py',
   'runpod-worker/requirements.txt',
   'runpod-worker/Dockerfile',
@@ -193,6 +194,13 @@ for (const contract of ['/run', '/status/', 'executionTimeout', 'ttl', 'Bearer']
 }
 if (runpodClient.includes('/retry')) fail('automatic paid RunPod retry must remain disabled');
 else ok('RunPod async client uses bounded execution without automatic paid retry');
+
+try {
+  execFileSync('node', ['scripts/test-runpod-client.mjs'], { stdio: 'pipe' });
+  ok('RunPod client contract tests pass without network access');
+} catch {
+  fail('RunPod client contract tests failed');
+}
 
 const frontendFiles = ['app/index.html', 'app/sw.js', 'app/manifest.webmanifest'];
 const forbiddenFrontendSecrets = [
