@@ -193,6 +193,17 @@ for (const cacheContract of ['WAN_MODEL_ID', 'huggingface-cache', 'resolve_check
 }
 if (!failed) ok('RunPod worker resolves the cached Wan model without a paid network volume');
 
+for (const fitnessContract of ['register_fitness_check', 'torch.cuda.is_available', 'total_vram_gb < 40', 'ffmpeg introuvable']) {
+  if (!runpodHandler.includes(fitnessContract)) fail(`RunPod startup fitness contract missing: ${fitnessContract}`);
+}
+if (!/runpod>=1\.9/.test(runpodRequirements)) fail('RunPod SDK must be >=1.9 for startup fitness checks');
+else ok('RunPod worker validates GPU, model and ffmpeg before taking jobs');
+
+for (const uploadHostGuard of ['ZAYNAB_UPLOAD_HOST', 'parsed.hostname', 'hôte d’upload non autorisé']) {
+  if (!runpodHandler.includes(uploadHostGuard)) fail(`RunPod upload-host guard missing: ${uploadHostGuard}`);
+}
+if (!failed) ok('RunPod video upload is restricted to the configured Cloudflare host');
+
 
 const runpodClient = await readFile('src/runpod.js', 'utf8');
 for (const contract of ['/run', '/status/', 'executionTimeout', 'ttl', 'Bearer']) {

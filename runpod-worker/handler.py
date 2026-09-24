@@ -3,15 +3,21 @@ import re
 import subprocess
 import tempfile
 import time
+import shutil
 from pathlib import Path
 from urllib.parse import urlparse
 
 import requests
 import runpod
+import torch
 
 WAN_DIR = Path(__import__("os").getenv("WAN_DIR", "/opt/Wan2.2"))
 WAN_MODEL_ID = __import__("os").getenv("WAN_MODEL_ID", "Wan-AI/Wan2.2-TI2V-5B").strip()
 WAN_CKPT_DIR = __import__("os").getenv("WAN_CKPT_DIR", "").strip()
+ZAYNAB_UPLOAD_HOST = __import__("os").getenv(
+    "ZAYNAB_UPLOAD_HOST",
+    "zaynab-studio-staging.gassamasa.workers.dev",
+).strip().lower()
 
 
 def data_uri_to_file(data_uri: str, path: Path):
@@ -33,6 +39,10 @@ def validate_upload_target(upload_url: str, upload_token: str):
     parsed = urlparse(upload_url)
     if parsed.scheme != "https" or not parsed.netloc:
         raise ValueError("upload_url HTTPS invalide")
+    if parsed.username or parsed.password or parsed.port not in {None, 443}:
+        raise ValueError("upload_url non autorisée")
+    if (parsed.hostname or "").lower() != ZAYNAB_UPLOAD_HOST:
+        raise ValueError("hôte d’upload non autorisé")
     if not parsed.path.startswith("/api/v1/uploads/"):
         raise ValueError("upload_url non autorisée")
     if len(upload_token) < 32 or len(upload_token) > 256:
@@ -65,6 +75,33 @@ def resolve_checkpoint_dir() -> Path:
             f"aucun snapshot RunPod cache disponible: {WAN_MODEL_ID}"
         )
     return max(snapshots, key=lambda path: path.stat().st_mtime)
+
+
+@runpod.serverless.register_fitness_check
+def check_zaynab_worker():
+    if not torch.cuda.is_available():
+        raise RuntimeError("GPU CUDA indisponible")
+
+    total_vram_gb = torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)
+    if total_vram_gb < 40:
+        raise RuntimeError(
+            f"VRAM insuffisante: {total_vram_gb:.1f} GB (classe 48 GB attendue)"
+        )
+
+    generate_script = WAN_DIR / "generate.py"
+    if not generate_script.exists():
+        raise RuntimeError(f"script Wan introuvable: {generate_script}")
+
+    checkpoint_dir = resolve_checkpoint_dir()
+    try:
+        has_model_files = any(checkpoint_dir.iterdir())
+    except OSError as exc:
+        raise RuntimeError(f"checkpoint Wan illisible: {exc}") from exc
+    if not has_model_files:
+        raise RuntimeError(f"checkpoint Wan vide: {checkpoint_dir}")
+
+    if shutil.which("ffmpeg") is None:
+        raise RuntimeError("ffmpeg introuvable")
 
 
 def find_generated_mp4(started_at: float, output_text: str) -> Path:
