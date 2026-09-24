@@ -21,6 +21,7 @@ Only non-secret model configuration is needed persistently:
 
 - `WAN_DIR=/opt/Wan2.2`
 - `WAN_MODEL_ID=Wan-AI/Wan2.2-TI2V-5B`
+- `ZAYNAB_UPLOAD_HOST=zaynab-studio-staging.gassamasa.workers.dev` for the first staging benchmark
 
 In the RunPod endpoint, configure the same Hugging Face model in the **Model / cached model** field. Do not attach a paid Network Volume for the first benchmark unless cached-model scheduling proves unavailable.
 
@@ -79,3 +80,6 @@ The Cloudflare API now has a prepared `/api/v1/real-generate` bridge for the fir
 - The render profile is exactly Brouillon, 5 s, 9:16.
 
 The normal `/api/v1/generate` route remains mock-only. There is no automatic paid retry.
+
+
+The upload worker rejects HTTPS destinations outside `ZAYNAB_UPLOAD_HOST`, including userinfo and non-standard ports. Change that non-secret host only when moving the controlled benchmark from staging to a production Worker domain.
