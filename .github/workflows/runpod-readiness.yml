@@ -1,0 +1,76 @@
+name: Check RunPod readiness
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+  RUNPOD_ENDPOINT_ID: ${{ secrets.RUNPOD_ENDPOINT_ID }}
+
+jobs:
+  readonly-preflight:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check RunPod API key
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$RUNPOD_API_KEY" || {
+            echo "RUNPOD_API_KEY is not configured as a GitHub secret."
+            exit 1
+          }
+
+      - name: List Serverless endpoints
+        shell: bash
+        run: |
+          set -euo pipefail
+          QUERY='query { myself { endpoints { id name gpuIds idleTimeout locations networkVolumeId scalerType scalerValue templateId workersMax workersMin } } }'
+          RESPONSE=$(curl -fsS --get 'https://api.runpod.io/graphql' \
+            --data-urlencode "api_key=$RUNPOD_API_KEY" \
+            --data-urlencode "query=$QUERY")
+          printf '%s' "$RESPONSE" | node -e "
+            let s='';
+            process.stdin.on('data',d=>s+=d).on('end',()=>{
+              const j=JSON.parse(s);
+              if (j.errors) {
+                console.error(JSON.stringify(j.errors));
+                process.exit(1);
+              }
+              const endpoints=j?.data?.myself?.endpoints || [];
+              console.log('RunPod endpoints visible:', endpoints.length);
+              for (const e of endpoints) {
+                console.log(JSON.stringify({
+                  id:e.id,
+                  name:e.name,
+                  gpuIds:e.gpuIds,
+                  workersMin:e.workersMin,
+                  workersMax:e.workersMax,
+                  idleTimeout:e.idleTimeout,
+                  networkVolumeId:e.networkVolumeId || null
+                }));
+              }
+            });
+          "
+
+      - name: Check configured endpoint health
+        if: env.RUNPOD_ENDPOINT_ID != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          RESPONSE=$(curl -fsS \
+            -H "authorization: Bearer $RUNPOD_API_KEY" \
+            "https://api.runpod.ai/v2/$RUNPOD_ENDPOINT_ID/health")
+          printf '%s' "$RESPONSE" | node -e "
+            let s='';
+            process.stdin.on('data',d=>s+=d).on('end',()=>{
+              const j=JSON.parse(s);
+              console.log(JSON.stringify({
+                endpoint_id: process.env.RUNPOD_ENDPOINT_ID,
+                workers: j.workers || {},
+                jobs: j.jobs || {}
+              }));
+            });
+          "
