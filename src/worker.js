@@ -1,3 +1,5 @@
+import { getRunpodJob, submitRunpodJob } from "./runpod.js";
+
 const json = (data, status = 200) => new Response(JSON.stringify(data), {
   status,
   headers: {
@@ -13,6 +15,9 @@ const ALLOWED_FORMATS = new Set(["9:16", "1:1"]);
 const ALLOWED_DURATIONS = new Set(["5 s", "8 s", "10 s"]);
 const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
 const UPLOAD_GRANT_TTL_SECONDS = 30 * 60;
+const MAX_REFERENCE_BYTES = 5 * 1024 * 1024;
+const FIRST_REAL_RENDER_MAX_EUR = 0.50;
+const FIRST_REAL_RENDER_DURATION = "5 s";
 const GPU_READINESS = Object.freeze({
   engine: ENGINE,
   resolution: "704x1280",
@@ -50,6 +55,19 @@ function realGpuEnabled(env) {
   return env.ALLOW_REAL_GPU === "true" && runpodConfigured(env);
 }
 
+function realGpuActivationReady(env) {
+  return realGpuEnabled(env) && Boolean(env.REAL_GPU_APPROVAL_TOKEN);
+}
+
+function realGpuApprovalAccepted(request, env) {
+  const provided = request.headers.get("x-zaynab-render-approval");
+  return Boolean(
+    provided &&
+    env.REAL_GPU_APPROVAL_TOKEN &&
+    provided === env.REAL_GPU_APPROVAL_TOKEN
+  );
+}
+
 function persistenceReady(env) {
   return Boolean(env.DB) && Boolean(env.VIDEOS);
 }
@@ -60,7 +78,7 @@ function gpuReadiness(env) {
     persistence_ready: persistenceReady(env),
     runpod_configured: runpodConfigured(env),
     allow_real_gpu_flag: env.ALLOW_REAL_GPU === "true",
-    ready_for_paid_activation: false,
+    ready_for_paid_activation: realGpuActivationReady(env),
     real_gpu_allowed: false,
     quote: GPU_QUOTE,
     message: "Préparation uniquement. Une activation réelle exige une validation humaine séparée."
@@ -131,6 +149,28 @@ function limitedUploadBody(body, maxBytes, onChunk) {
   }));
 }
 
+function arrayBufferToBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+  }
+  return btoa(binary);
+}
+
+async function loadPrimaryReference(env, origin) {
+  const response = await env.ASSETS.fetch(
+    new Request(new URL("/assets/references/portrait-main.jpg", origin))
+  );
+  if (!response.ok) throw new Error("Référence Zaynab principale introuvable");
+  const buffer = await response.arrayBuffer();
+  if (!buffer.byteLength || buffer.byteLength > MAX_REFERENCE_BYTES) {
+    throw new Error("Référence Zaynab principale invalide");
+  }
+  const contentType = response.headers.get("content-type") || "image/jpeg";
+  return `data:${contentType};base64,${arrayBufferToBase64(buffer)}`;
+}
+
 function validateGenerateInput(input) {
   const prompt = cleanText(input?.prompt, 12000);
   if (!prompt) return { error: "prompt requis" };
@@ -177,6 +217,117 @@ async function createMockJob(env, input) {
   return id;
 }
 
+async function createRealRunpodJob(env, input, requestUrl, approvedCostEur) {
+  const id = `runpod_${crypto.randomUUID()}`;
+  const now = new Date().toISOString();
+  await env.DB.prepare(`
+    INSERT INTO video_jobs
+      (id, project_id, title, mode, format, duration, engine, status, progress, cost_eur,
+       approved_cost_eur, approval_at, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 'submitting', 0, 0, ?, ?, ?, ?)
+  `).bind(
+    id,
+    input.project_id,
+    input.title,
+    input.mode,
+    input.format,
+    input.duration,
+    ENGINE,
+    approvedCostEur,
+    now,
+    now,
+    now
+  ).run();
+
+  try {
+    const grant = await createUploadGrant(env, id, requestUrl.origin);
+    const referenceImage = await loadPrimaryReference(env, requestUrl.origin);
+    const submitted = await submitRunpodJob(env, {
+      job_id: id,
+      prompt: input.prompt,
+      reference_image: referenceImage,
+      mode: input.mode,
+      duration: input.duration,
+      upload_url: grant.upload_url,
+      upload_token: grant.upload_token
+    });
+
+    await env.DB.prepare(
+      "UPDATE video_jobs SET runpod_job_id = ?, status = 'queued', progress = 1, updated_at = ? WHERE id = ?"
+    ).bind(submitted.id, new Date().toISOString(), id).run();
+
+    return { id, runpod_job_id: submitted.id, provider_status: submitted.status || "IN_QUEUE" };
+  } catch (error) {
+    await env.DB.prepare(
+      "UPDATE video_jobs SET status = 'failed', error = ?, upload_token_hash = NULL, upload_expires_at = NULL, updated_at = ? WHERE id = ?"
+    ).bind(String(error?.message || "RUNPOD_SUBMIT_FAILED").slice(0, 1000), new Date().toISOString(), id).run();
+    throw error;
+  }
+}
+
+async function syncRunpodJob(env, job) {
+  if (!job?.runpod_job_id || !runpodConfigured(env)) return job;
+  if (["completed", "failed", "cancelled"].includes(job.status)) return job;
+
+  let remote;
+  try {
+    remote = await getRunpodJob(env, job.runpod_job_id);
+  } catch {
+    return job;
+  }
+
+  const refreshed = await env.DB.prepare("SELECT * FROM video_jobs WHERE id = ?").bind(job.id).first();
+  if (refreshed?.status === "completed" || refreshed?.video_key) return refreshed;
+
+  const providerStatus = String(remote?.status || "").toUpperCase();
+  let status = refreshed?.status || job.status;
+  let progress = Number(refreshed?.progress ?? job.progress ?? 0);
+  let error = refreshed?.error || null;
+
+  if (providerStatus === "IN_QUEUE") {
+    status = "queued";
+    progress = Math.max(progress, 1);
+  } else if (providerStatus === "IN_PROGRESS") {
+    status = "processing";
+    progress = Math.max(progress, 20);
+  } else if (providerStatus === "COMPLETED") {
+    if (remote?.output?.status === "error") {
+      status = "failed";
+      error = cleanText(remote.output.message, 1000, "RUNPOD_WORKER_ERROR");
+    } else if (remote?.output?.video_key) {
+      const object = await env.VIDEOS.head(remote.output.video_key);
+      if (object) {
+        status = "completed";
+        progress = 100;
+        await env.DB.prepare(
+          "UPDATE video_jobs SET status = 'completed', progress = 100, video_key = ?, provider_execution_ms = ?, error = NULL, updated_at = ? WHERE id = ?"
+        ).bind(
+          remote.output.video_key,
+          Number.isFinite(Number(remote.executionTime)) ? Number(remote.executionTime) : null,
+          new Date().toISOString(),
+          job.id
+        ).run();
+        return env.DB.prepare("SELECT * FROM video_jobs WHERE id = ?").bind(job.id).first();
+      }
+      status = "processing";
+      progress = Math.max(progress, 99);
+    }
+  } else if (["FAILED", "TIMED_OUT"].includes(providerStatus)) {
+    status = "failed";
+    error = cleanText(remote?.error, 1000, providerStatus);
+  } else if (providerStatus === "CANCELLED") {
+    status = "cancelled";
+    error = "CANCELLED";
+  }
+
+  const executionMs = Number.isFinite(Number(remote?.executionTime)) ? Number(remote.executionTime) : null;
+  await env.DB.prepare(
+    "UPDATE video_jobs SET status = ?, progress = ?, error = ?, provider_execution_ms = COALESCE(?, provider_execution_ms), updated_at = ? WHERE id = ?"
+  ).bind(status, progress, error, executionMs, new Date().toISOString(), job.id).run();
+
+  return env.DB.prepare("SELECT * FROM video_jobs WHERE id = ?").bind(job.id).first();
+}
+
 async function readJob(env, id) {
   const job = await env.DB.prepare("SELECT * FROM video_jobs WHERE id = ?").bind(id).first();
   if (!job) return null;
@@ -195,6 +346,10 @@ async function readJob(env, id) {
       job.updated_at = now;
     }
   }
+
+  if (!job.id.startsWith("mock_") && job.runpod_job_id) {
+    return syncRunpodJob(env, job);
+  }
   return job;
 }
 
@@ -211,6 +366,9 @@ function publicJob(job) {
     duration: job.duration,
     engine: job.engine,
     cost_eur: job.cost_eur,
+    approved_cost_eur: job.approved_cost_eur ?? null,
+    cost_status: job.id.startsWith("mock_") ? "exact_zero" : "provider_billing_pending",
+    provider_execution_ms: job.provider_execution_ms ?? null,
     video_url: job.video_key ? `/api/v1/videos/${encodeURIComponent(job.id)}` : null,
     error: job.error || null,
     created_at: job.created_at,
@@ -300,6 +458,68 @@ export default {
 
       const id = await createMockJob(env, checked.value);
       return json({ job_id: id, status: "processing", mode: "mock", cost_eur: 0 }, 202);
+    }
+
+    if (url.pathname === "/api/v1/real-generate" && request.method === "POST") {
+      if (crossOriginWrite(request, url)) {
+        return json({ error: "Origine non autorisée", code: "CROSS_ORIGIN_WRITE_BLOCKED" }, 403);
+      }
+      if (!persistenceReady(env)) {
+        return json({ error: "Persistance Cloudflare non configurée", code: "PERSISTENCE_NOT_BOUND" }, 503);
+      }
+      if (env.ALLOW_REAL_GPU !== "true") {
+        return json({ error: "GPU réel désactivé", code: "REAL_GPU_DISABLED" }, 423);
+      }
+      if (!runpodConfigured(env)) {
+        return json({ error: "RunPod non configuré", code: "RUNPOD_NOT_CONFIGURED" }, 503);
+      }
+      if (!realGpuApprovalAccepted(request, env)) {
+        return json({ error: "Approbation humaine requise", code: "HUMAN_APPROVAL_REQUIRED" }, 403);
+      }
+
+      let body;
+      try { body = await request.json(); }
+      catch { return json({ error: "JSON invalide" }, 400); }
+
+      const checked = validateGenerateInput(body);
+      if (checked.error) return json({ error: checked.error, code: checked.code || "INVALID_INPUT" }, 400);
+      if (checked.value.mode !== "Brouillon" || checked.value.duration !== FIRST_REAL_RENDER_DURATION || checked.value.format !== "9:16") {
+        return json({
+          error: "Le premier benchmark réel est limité à Brouillon, 5 s, 9:16",
+          code: "FIRST_RENDER_PROFILE_REQUIRED"
+        }, 400);
+      }
+
+      const approvedCostEur = Number(body?.approved_max_eur);
+      if (
+        !Number.isFinite(approvedCostEur) ||
+        approvedCostEur < GPU_QUOTE.max_compute_estimate_eur_with_25pct_buffer ||
+        approvedCostEur > FIRST_REAL_RENDER_MAX_EUR
+      ) {
+        return json({
+          error: "Plafond de coût non approuvé ou hors limite",
+          code: "COST_APPROVAL_REQUIRED",
+          required_min_eur: GPU_QUOTE.max_compute_estimate_eur_with_25pct_buffer,
+          hard_max_eur: FIRST_REAL_RENDER_MAX_EUR
+        }, 400);
+      }
+
+      try {
+        const job = await createRealRunpodJob(env, checked.value, url, approvedCostEur);
+        return json({
+          job_id: job.id,
+          status: "queued",
+          mode: "runpod",
+          approved_max_eur: approvedCostEur,
+          provider_status: job.provider_status
+        }, 202);
+      } catch (error) {
+        return json({
+          error: "Échec de soumission RunPod",
+          code: "RUNPOD_SUBMIT_FAILED",
+          detail: String(error?.message || "").slice(0, 300)
+        }, 502);
+      }
     }
 
     const uploadMatch = url.pathname.match(/^\/api\/v1\/uploads\/([^/]+)$/);
