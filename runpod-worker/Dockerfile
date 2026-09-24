@@ -28,4 +28,6 @@ RUN python -m pip install --no-cache-dir -r requirements.txt
 
 COPY handler.py ./handler.py
 
+RUN python -c "import runpod; assert hasattr(runpod.serverless, 'register_fitness_check'); import handler; assert callable(handler.check_zaynab_worker)"
+
 CMD ["python", "-u", "handler.py"]
