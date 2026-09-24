@@ -100,6 +100,7 @@ def handler(job):
     prompt = str(payload.get("prompt", "")).strip()
     image = str(payload.get("reference_image", "")).strip()
     mode = payload.get("mode", "Brouillon")
+    duration = str(payload.get("duration", "5 s")).strip()
     job_id = str(payload.get("job_id") or job.get("id") or "").strip()
     upload_url = str(payload.get("upload_url", "")).strip()
     upload_token = str(payload.get("upload_token", "")).strip()
@@ -112,6 +113,9 @@ def handler(job):
         return {"status": "error", "message": "image de référence manquante"}
     if mode not in {"Brouillon", "Qualité"}:
         return {"status": "error", "message": "mode invalide"}
+    frame_num_by_duration = {"5 s": 121, "8 s": 193, "10 s": 241}
+    if duration not in frame_num_by_duration:
+        return {"status": "error", "message": "durée invalide"}
     if not job_id:
         return {"status": "error", "message": "job_id manquant"}
     try:
@@ -145,6 +149,8 @@ def handler(job):
             str(image_path),
             "--prompt",
             prompt,
+            "--frame_num",
+            str(frame_num_by_duration[duration]),
             "--sample_steps",
             steps,
         ]
@@ -183,6 +189,8 @@ def handler(job):
         return {
             "status": "success",
             "engine": "wan-2.2-ti2v-5b",
+            "duration": duration,
+            "frame_num": frame_num_by_duration[duration],
             "video_key": upload_result["video_key"],
             "bytes": upload_result.get("uploaded_bytes", video_path.stat().st_size),
             "message": "Wan terminé et MP4 stocké durablement via Cloudflare.",
