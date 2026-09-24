@@ -19,7 +19,16 @@ The GitHub workflow `Build RunPod Wan worker` builds `runpod-worker/Dockerfile` 
 Before endpoint setup, require:
 - repository validation green;
 - container build green;
-- the main image published successfully.
+- the main image published successfully;
+- GHCR pull access confirmed.
+
+GitHub Container Registry packages are private on first publication even when the source repository is public. For this worker, the preferred setup is to make **only the container package** `zaynab-wan-worker` public, because the image contains no model weights or credentials. That lets RunPod pull it anonymously and avoids creating an extra GitHub package-read token. If the package must remain private, configure RunPod registry credentials separately instead.
+
+Known successfully published image from the bridge milestone:
+- `ghcr.io/amazingnessly/zaynab-wan-worker:sha-86b6e88`
+- digest: `sha256:36fca03ae9edef532ee838f3484a9a15094e17576860b2831b028584d3313d52`
+
+Prefer a digest-pinned image for the first real benchmark after the final fitness-check build is published; do not rely on a moving `:main` tag for that paid run.
 
 ## 2. RunPod endpoint
 
