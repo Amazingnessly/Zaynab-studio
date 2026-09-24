@@ -9,18 +9,20 @@ The Dockerfile pins:
 - Wan2.2 source commit `1ea34ff48f87168174e12956e200b1d908b1c5ff`.
 - Zaynab Studio's `handler.py`.
 
-Model weights are deliberately **not** baked into the image. The expected checkpoint path is:
+Model weights are deliberately **not** baked into the image. The preferred first-benchmark setup uses RunPod **cached models** with the public Hugging Face model `Wan-AI/Wan2.2-TI2V-5B`.
 
-`/runpod-volume/Wan2.2-TI2V-5B`
+RunPod exposes cached Hugging Face snapshots under `/runpod-volume/huggingface-cache/hub/`. The worker resolves the current snapshot automatically. This avoids paying for a persistent Network Volume solely to store the 34+ GB model and avoids billable model-download time when RunPod's cache is used.
 
-Attach a RunPod Network Volume containing the model at `/runpod-volume`.
+A manually mounted checkpoint can still be supplied later with `WAN_CKPT_DIR`, but it is not required for the planned cached-model endpoint.
 
 ## RunPod worker configuration
 
-Only non-secret model paths need to be configured as persistent environment variables:
+Only non-secret model configuration is needed persistently:
 
 - `WAN_DIR=/opt/Wan2.2`
-- `WAN_CKPT_DIR=/runpod-volume/Wan2.2-TI2V-5B`
+- `WAN_MODEL_ID=Wan-AI/Wan2.2-TI2V-5B`
+
+In the RunPod endpoint, configure the same Hugging Face model in the **Model / cached model** field. Do not attach a paid Network Volume for the first benchmark unless cached-model scheduling proves unavailable.
 
 The worker no longer needs Cloudflare R2 access keys. For each future real job, the Cloudflare Worker will mint a short-lived, one-time upload grant and pass these values in the RunPod job input:
 
