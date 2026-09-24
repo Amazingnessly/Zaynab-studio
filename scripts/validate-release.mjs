@@ -181,6 +181,11 @@ if (!runpodRequirements.includes('requests')) fail('RunPod secure upload require
 if (runpodRequirements.includes('boto3')) fail('RunPod worker should not depend on boto3 after secure upload refactor');
 if (!failed) ok('RunPod uploads through a one-time Cloudflare grant without R2 credentials');
 
+for (const cacheContract of ['WAN_MODEL_ID', 'huggingface-cache', 'resolve_checkpoint_dir', 'Wan-AI/Wan2.2-TI2V-5B']) {
+  if (!runpodHandler.includes(cacheContract)) fail(`RunPod cached-model contract missing: ${cacheContract}`);
+}
+if (!failed) ok('RunPod worker resolves the cached Wan model without a paid network volume');
+
 
 const runpodClient = await readFile('src/runpod.js', 'utf8');
 for (const contract of ['/run', '/status/', 'executionTimeout', 'ttl', 'Bearer']) {
