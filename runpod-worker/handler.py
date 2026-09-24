@@ -14,6 +14,10 @@ import torch
 WAN_DIR = Path(__import__("os").getenv("WAN_DIR", "/opt/Wan2.2"))
 WAN_MODEL_ID = __import__("os").getenv("WAN_MODEL_ID", "Wan-AI/Wan2.2-TI2V-5B").strip()
 WAN_CKPT_DIR = __import__("os").getenv("WAN_CKPT_DIR", "").strip()
+ZAYNAB_UPLOAD_HOST = __import__("os").getenv(
+    "ZAYNAB_UPLOAD_HOST",
+    "zaynab-studio-staging.gassamasa.workers.dev",
+).strip().lower()
 
 
 def data_uri_to_file(data_uri: str, path: Path):
@@ -35,6 +39,10 @@ def validate_upload_target(upload_url: str, upload_token: str):
     parsed = urlparse(upload_url)
     if parsed.scheme != "https" or not parsed.netloc:
         raise ValueError("upload_url HTTPS invalide")
+    if parsed.username or parsed.password or parsed.port not in {None, 443}:
+        raise ValueError("upload_url non autorisée")
+    if (parsed.hostname or "").lower() != ZAYNAB_UPLOAD_HOST:
+        raise ValueError("hôte d’upload non autorisé")
     if not parsed.path.startswith("/api/v1/uploads/"):
         raise ValueError("upload_url non autorisée")
     if len(upload_token) < 32 or len(upload_token) > 256:
