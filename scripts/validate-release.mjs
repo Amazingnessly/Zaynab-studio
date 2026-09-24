@@ -192,6 +192,11 @@ for (const fitnessContract of ['register_fitness_check', 'torch.cuda.is_availabl
 if (!/runpod>=1\.9/.test(runpodRequirements)) fail('RunPod SDK must be >=1.9 for startup fitness checks');
 else ok('RunPod worker validates GPU, model and ffmpeg before taking jobs');
 
+for (const uploadHostGuard of ['ZAYNAB_UPLOAD_HOST', 'parsed.hostname', 'hôte d’upload non autorisé']) {
+  if (!runpodHandler.includes(uploadHostGuard)) fail(`RunPod upload-host guard missing: ${uploadHostGuard}`);
+}
+if (!failed) ok('RunPod video upload is restricted to the configured Cloudflare host');
+
 
 const runpodClient = await readFile('src/runpod.js', 'utf8');
 for (const contract of ['/run', '/status/', 'executionTimeout', 'ttl', 'Bearer']) {
