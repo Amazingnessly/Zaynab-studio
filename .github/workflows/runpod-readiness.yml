@@ -18,7 +18,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          docker manifest inspect ghcr.io/amazingnessly/zaynab-wan-worker:main >/dev/null || {
+          docker manifest inspect ghcr.io/amazingnessly/zaynab-wan-worker@sha256:ef6432228dd72dc8bdcd5bad11376886d6233dfe4a03d14f3ef1191cec840897 >/dev/null || {
             echo "GHCR worker package is not anonymously pullable."
             echo "Make only the zaynab-wan-worker container package public, or configure RunPod registry credentials."
             exit 1
