@@ -156,6 +156,12 @@ for (const uploadGuard of ['hashUploadToken', 'upload_token_hash', 'upload_expir
 if (!worker.includes('Authorization') && !worker.includes('authorization')) fail('secure upload must require bearer authorization');
 else ok('Cloudflare one-time upload route is authenticated');
 
+if (!worker.includes('UPLOAD_GRANT_TTL_SECONDS = 45 * 60')) {
+  fail('one-time upload grant must outlive the 30-minute RunPod job TTL with margin');
+} else {
+  ok('one-time upload grant has margin beyond the RunPod job TTL');
+}
+
 const runpodHandler = await readFile('runpod-worker/handler.py', 'utf8');
 const runpodRequirements = await readFile('runpod-worker/requirements.txt', 'utf8');
 try {
