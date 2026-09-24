@@ -14,6 +14,16 @@ jobs:
   readonly-preflight:
     runs-on: ubuntu-latest
     steps:
+      - name: Check worker image is anonymously pullable
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker manifest inspect ghcr.io/amazingnessly/zaynab-wan-worker:main >/dev/null || {
+            echo "GHCR worker package is not anonymously pullable."
+            echo "Make only the zaynab-wan-worker container package public, or configure RunPod registry credentials."
+            exit 1
+          }
+
       - name: Check RunPod API key
         shell: bash
         run: |
