@@ -1,4 +1,4 @@
-FROM runpod/pytorch:2.8.0-py3.11-cuda12.8.1-cudnn-devel-ubuntu
+FROM pytorch/pytorch:2.8.0-cuda12.8-cudnn9-devel
 
 ARG WAN_COMMIT=1ea34ff48f87168174e12956e200b1d908b1c5ff
 
@@ -18,7 +18,9 @@ RUN git clone https://github.com/Wan-Video/Wan2.2.git \
     && git checkout "$WAN_COMMIT"
 
 RUN python -m pip install --upgrade pip setuptools wheel \
-    && python -m pip install --no-cache-dir -r /opt/Wan2.2/requirements.txt
+    && sed '/^flash_attn/d' /opt/Wan2.2/requirements.txt > /tmp/wan-requirements.txt \
+    && python -m pip install --no-cache-dir -r /tmp/wan-requirements.txt \
+    && MAX_JOBS=2 python -m pip install --no-cache-dir --no-build-isolation "flash-attn==2.8.3.post1"
 
 WORKDIR /opt/zaynab-worker
 COPY requirements.txt ./requirements.txt
